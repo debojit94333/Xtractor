@@ -58,15 +58,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     return clean.slice(0, 100) || 'video';
   }
 
+  function isGenericTitle(str) {
+    if (!str) return true;
+    const s = str.trim().toLowerCase();
+    if (s === 'video' || s === 'media' || s === 'audio' || s === 'player' || s === 'video player' || s === 'embed' || s === 'home' || s === 'untitled') return true;
+    if (/^video[_-]?\d*$/i.test(s) || /^media[_-]?\d*$/i.test(s) || /^blob:/i.test(s)) return true;
+    if (/^(master|index|playlist|manifest|chunklist|stream|chunks|segment|output|variant)$/i.test(s)) return true;
+    if (/^[0-9a-f_-]{6,}$/i.test(s) || /^\d+$/.test(s)) return true;
+    if (s.includes('_mp4_h264_') || s.includes('_hls_') || s.includes('chunk_')) return true;
+    return false;
+  }
+
   function cleanPageTitle(raw) {
     if (!raw) return '';
     let t = raw.trim();
     // Strip site branding
-    t = t.replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Watch Online|Free Full|HD|1080p|Official Video|Movie|Streaming|Video Player).*$/i, '');
+    t = t.replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie).*$/i, '');
+    t = t.replace(/^Watch\s+/i, '');
+    t = t.replace(/\s+Online\s*(Free)?$/i, '');
     // Strip extension suffixes
     t = t.replace(/\.(mp4|m3u8|webm|mov|mkv|flv|ts|avi)$/i, '');
     t = sanitizeFilename(t);
-    if (!t || t.toLowerCase() === 'video' || /^\d+$/.test(t)) return '';
+    if (!t || isGenericTitle(t)) return '';
     return t;
   }
 
@@ -139,20 +152,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function applyResolvedTitle(resolvedTitle) {
-    if (!resolvedTitle) return;
+    if (!resolvedTitle || isGenericTitle(resolvedTitle)) return;
     allMedia.forEach(m => {
-      if (
-        !m.title ||
-        m.title === 'Video' ||
-        m.title.startsWith('Video_') ||
-        m.title.startsWith('Media_') ||
-        m.title === 'master' ||
-        m.title === 'index' ||
-        m.title === 'playlist' ||
-        m.title === 'manifest' ||
-        m.title === 'video' ||
-        /^\d+$/.test(m.title)
-      ) {
+      if (!m.title || isGenericTitle(m.title)) {
         m.title = resolvedTitle;
       }
     });
@@ -165,22 +167,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.sendMessage({ type: 'GET_TAB_MEDIA', tabId: activeTabId }, (response) => {
       allMedia = (response && response.media) ? response.media : [];
 
-      if (activeTabTitle) {
+      if (activeTabTitle && !isGenericTitle(activeTabTitle)) {
         applyResolvedTitle(activeTabTitle);
       }
 
-      // Query page for accurate human-readable title
-      chrome.tabs.sendMessage(activeTabId, { type: 'GET_PAGE_TITLE' }, (titleRes) => {
-        if (titleRes && titleRes.title) {
-          const docTitle = cleanPageTitle(titleRes.title);
-          if (docTitle) {
-            activeTabTitle = docTitle;
-            applyResolvedTitle(docTitle);
+      // Query TOP frame ({ frameId: 0 }) specifically for og:title / h1 / page title
+      try {
+        chrome.tabs.sendMessage(activeTabId, { type: 'GET_PAGE_TITLE' }, { frameId: 0 }, (titleRes) => {
+          if (!chrome.runtime.lastError && titleRes && titleRes.title) {
+            const docTitle = cleanPageTitle(titleRes.title);
+            if (docTitle && !isGenericTitle(docTitle)) {
+              activeTabTitle = docTitle;
+              applyResolvedTitle(docTitle);
+            }
           }
-        }
+          updateCounts();
+          renderMedia();
+        });
+      } catch (e) {
         updateCounts();
         renderMedia();
-      });
+      }
     });
   }
 
@@ -258,9 +265,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const isStream = isHlsMedia(item);
-    const titleText = (item.title && item.title !== 'Video' && !item.title.startsWith('Video_')) 
+    const titleText = (item.title && !isGenericTitle(item.title)) 
       ? item.title 
-      : (activeTabTitle || 'Video');
+      : (activeTabTitle && !isGenericTitle(activeTabTitle) ? activeTabTitle : 'Video');
+    item.title = titleText;
     const formatName = isAudio ? 'AUDIO MP3' : (item.resolution ? `${item.resolution} MP4` : 'MP4 VIDEO');
     const sizeDisplay = (!isStream && item.size && item.size > 50000) 
       ? formatBytes(item.size) 

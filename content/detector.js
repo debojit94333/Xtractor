@@ -11,48 +11,92 @@
 
   // Clean title for display & filesystem saving
   function sanitizeTitle(str) {
-    if (!str) return 'Video';
+    if (!str) return '';
     let s = str.trim();
     // Strip common site suffixes
-    s = s.replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Watch Online|Free Full|HD).*$/i, '');
+    s = s.replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie).*$/i, '');
+    s = s.replace(/^Watch\s+/i, '');
+    s = s.replace(/\s+Online\s*(Free)?$/i, '');
     // Remove invalid filesystem characters
     s = s.replace(/[<>:"/\\|?*\x00-\x1F\r\n\t]/g, '_').trim();
     s = s.replace(/_+/g, '_').replace(/\.+$/, '');
-    return s.slice(0, 100) || 'Video';
+    return s.slice(0, 100) || '';
+  }
+
+  function isGenericTitle(str) {
+    if (!str) return true;
+    const s = str.trim().toLowerCase();
+    if (s === 'video' || s === 'media' || s === 'audio' || s === 'player' || s === 'video player' || s === 'embed' || s === 'home' || s === 'untitled') return true;
+    if (/^video[_-]?\d*$/i.test(s) || /^media[_-]?\d*$/i.test(s) || /^blob:/i.test(s)) return true;
+    if (/^(master|index|playlist|manifest|chunklist|stream|chunks|segment|output|variant)$/i.test(s)) return true;
+    if (/^[0-9a-f_-]{6,}$/i.test(s) || /^\d+$/.test(s)) return true;
+    if (s.includes('_mp4_h264_') || s.includes('_hls_') || s.includes('chunk_')) return true;
+    return false;
   }
 
   // Extract the true human-readable video title from the page DOM
   function getBestVideoTitle(videoEl) {
+    // 1. Direct video element attributes
     if (videoEl) {
       const elTitle = videoEl.getAttribute('title') || videoEl.getAttribute('aria-label');
-      if (elTitle && elTitle.trim().length > 2) return sanitizeTitle(elTitle);
+      if (elTitle && elTitle.trim().length > 2 && !isGenericTitle(elTitle)) {
+        return sanitizeTitle(elTitle);
+      }
     }
 
-    // Modern video sites title selectors
-    const titleEl = document.querySelector('h1.title, h1.video-title, .video-info h1, [data-testid="video-title"], .video-title, #video-title, h1');
-    if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 2 && titleEl.innerText.trim().length < 120) {
-      return sanitizeTitle(titleEl.innerText);
-    }
-
+    // 2. OpenGraph metadata (og:title is the cleanest, most accurate video title on 95% of video sites!)
     const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
-    if (ogTitle && ogTitle.trim()) return sanitizeTitle(ogTitle);
+    if (ogTitle && ogTitle.trim() && !isGenericTitle(ogTitle)) {
+      return sanitizeTitle(ogTitle);
+    }
 
     const twTitle = document.querySelector('meta[name="twitter:title"]')?.getAttribute('content');
-    if (twTitle && twTitle.trim()) return sanitizeTitle(twTitle);
-
-    const nameTitle = document.querySelector('meta[name="title"]')?.getAttribute('content');
-    if (nameTitle && nameTitle.trim()) return sanitizeTitle(nameTitle);
-
-    if (document.title && document.title.trim()) {
-      return sanitizeTitle(document.title);
+    if (twTitle && twTitle.trim() && !isGenericTitle(twTitle)) {
+      return sanitizeTitle(twTitle);
     }
 
-    return 'Video_' + Date.now().toString().slice(-4);
+    const nameTitle = document.querySelector('meta[name="title"]')?.getAttribute('content');
+    if (nameTitle && nameTitle.trim() && !isGenericTitle(nameTitle)) {
+      return sanitizeTitle(nameTitle);
+    }
+
+    // 3. Modern video site heading selectors
+    const titleSelectors = [
+      'h1.title', 'h1.video-title', '.video-info h1', '[data-testid="video-title"]',
+      '.video-title', '#video-title', '.film-name', '.anime-title', '.entry-title',
+      '.media-title', '.player-title', 'h1'
+    ];
+    for (const sel of titleSelectors) {
+      const el = document.querySelector(sel);
+      if (el && el.innerText) {
+        const text = el.innerText.trim();
+        if (text.length > 2 && text.length < 150 && !isGenericTitle(text)) {
+          return sanitizeTitle(text);
+        }
+      }
+    }
+
+    // 4. Document title
+    if (document.title && document.title.trim()) {
+      const cleanedDocTitle = sanitizeTitle(document.title);
+      if (cleanedDocTitle && !isGenericTitle(cleanedDocTitle)) {
+        return cleanedDocTitle;
+      }
+    }
+
+    // 5. If in an iframe, return empty string so top frame or URL resolves it
+    return '';
   }
 
   function sendMediaToBackground(mediaObj) {
     if (!mediaObj.url) return;
     if (reportedUrls.has(mediaObj.url)) return;
+    reportedUrls.add(mediaObj.url);
+
+    // If title is missing or generic, try to get the best title
+    if (!mediaObj.title || isGenericTitle(mediaObj.title)) {
+      mediaObj.title = getBestVideoTitle(null);
+    }
     reportedUrls.add(mediaObj.url);
 
     try {

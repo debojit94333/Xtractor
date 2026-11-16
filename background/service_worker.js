@@ -74,19 +74,33 @@ function sanitizeFilename(name) {
   return clean.slice(0, 100) || 'video';
 }
 
+function isGenericTitle(str) {
+  if (!str) return true;
+  const s = str.trim().toLowerCase();
+  if (s === 'video' || s === 'media' || s === 'audio' || s === 'player' || s === 'video player' || s === 'embed' || s === 'home' || s === 'untitled') return true;
+  if (/^video[_-]?\d*$/i.test(s) || /^media[_-]?\d*$/i.test(s) || /^blob:/i.test(s)) return true;
+  if (/^(master|index|playlist|manifest|chunklist|stream|chunks|segment|output|variant)$/i.test(s)) return true;
+  if (/^[0-9a-f_-]{6,}$/i.test(s) || /^\d+$/.test(s)) return true;
+  if (s.includes('_mp4_h264_') || s.includes('_hls_') || s.includes('chunk_')) return true;
+  return false;
+}
+
 // Extract human-readable Title: prioritize actual page & video title
 function extractTitle(urlStr, headerTitle, pageTitle) {
-  // 1. If pageTitle is provided and valid, use it!
+  // 1. If pageTitle is provided and valid, prioritize it!
   if (pageTitle && pageTitle.trim()) {
-    let clean = pageTitle.trim().replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Watch Online|Free Full|HD).*$/i, '').trim();
-    if (clean.length > 2 && !/^(Watch|Video|Home|Player|Untitled|Index|Media)$/i.test(clean)) {
-      return sanitizeFilename(clean);
+    let clean = pageTitle.trim().replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie).*$/i, '').trim();
+    clean = clean.replace(/^Watch\s+/i, '').replace(/\s+Online\s*(Free)?$/i, '').trim();
+    clean = sanitizeFilename(clean);
+    if (clean.length > 2 && !isGenericTitle(clean)) {
+      return clean;
     }
   }
 
   // 2. Content-Disposition header
   if (headerTitle && headerTitle.trim()) {
-    return sanitizeFilename(headerTitle);
+    const cleanHeader = sanitizeFilename(headerTitle);
+    if (!isGenericTitle(cleanHeader)) return cleanHeader;
   }
 
   // 3. Last URL segment (only if clean and not numbers/hashes)
@@ -96,17 +110,19 @@ function extractTitle(urlStr, headerTitle, pageTitle) {
     const lastSeg = segments[segments.length - 1] || '';
     if (lastSeg && /\.[a-z0-9]{2,5}$/i.test(lastSeg)) {
       const decoded = decodeURIComponent(lastSeg).replace(/\.[a-z0-9]{2,5}$/i, '');
-      if (decoded.length > 2 && !/^[0-9_a-f-]+$/i.test(decoded) && !/^(manifest|master|playlist|chunk|index|video|audio|segment|frag|seg_\d+|fragment)$/i.test(decoded)) {
-        return sanitizeFilename(decoded);
+      const cleanSlug = decoded.replace(/[_-]+/g, ' ').trim();
+      if (cleanSlug.length > 2 && !isGenericTitle(cleanSlug)) {
+        return sanitizeFilename(cleanSlug);
       }
     }
   } catch (e) {}
 
   if (pageTitle && pageTitle.trim()) {
-    return sanitizeFilename(pageTitle);
+    const clean = sanitizeFilename(pageTitle);
+    if (!isGenericTitle(clean)) return clean;
   }
 
-  return 'Video_' + Date.now().toString().slice(-4);
+  return 'Video';
 }
 
 // Filter out sub-chunks (prevents the 20+ file spam)
@@ -397,13 +413,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (mediaInfo) {
           const isHls = Boolean(mediaInfo.isHls);
           const displaySize = isHls ? 0 : (item.size || 0);
+
+          let resolvedTitle = (item.title && !isGenericTitle(item.title)) 
+            ? sanitizeFilename(item.title) 
+            : extractTitle(item.url, '', sender.tab?.title || '');
+
           const finalItem = {
             id: 'med_' + Math.random().toString(36).substring(2, 9),
             url: getCleanDownloadUrl(item.url),
             rawUrl: item.url,
             cleanUrl: getNormalizedUrl(item.url),
             referer: sender.tab?.url || '',
-            title: item.title ? sanitizeFilename(item.title) : extractTitle(item.url, '', sender.tab?.title || ''),
+            title: resolvedTitle,
             format: item.format || mediaInfo.format,
             category: mediaInfo.category,
             isHls,
