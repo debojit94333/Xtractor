@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xtractor - Preferences & Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header class="options-header">
+      <div class="brand">
+        <img src="../icons/icon32.png" alt="Xtractor" class="brand-icon">
+        <div>
+          <h1>Xtractor Settings</h1>
+          <span class="brand-sub">Configure media detection, filters, and download preferences</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="options-body">
+      <!-- Media Sniffing Preferences -->
+      <section class="settings-card">
+        <h2>Media Sniffing & Detection</h2>
+        <p class="section-desc">Control what types of media streams Xtractor detects automatically.</p>
+
+        <div class="setting-item">
+          <div class="setting-text">
+            <label for="minSizeInput">Minimum File Size Filter (KB)</label>
+            <span class="setting-desc">Ignore media clips smaller than this size (avoids ads, UI clicks, tracking audio).</span>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="minSizeInput" min="0" max="50000" step="50" value="50">
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-text">
+            <label for="detectAudioToggle">Detect Audio Files</label>
+            <span class="setting-desc">Sniff MP3, AAC, WAV, M4A, and OGG audio streams.</span>
+          </div>
+          <div class="setting-control">
+            <label class="switch">
+              <input type="checkbox" id="detectAudioToggle" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-text">
+            <label for="detectStreamsToggle">Detect HLS & DASH Streams</label>
+            <span class="setting-desc">Sniff M3U8 and MPD adaptive streaming manifests.</span>
+          </div>
+          <div class="setting-control">
+            <label class="switch">
+              <input type="checkbox" id="detectStreamsToggle" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Download & Storage Preferences -->
+      <section class="settings-card">
+        <h2>Download & Storage Preferences</h2>
+        <p class="section-desc">Manage where and how files are saved on your computer.</p>
+
+        <div class="setting-item">
+          <div class="setting-text">
+            <label for="subfolderInput">Download Subfolder</label>
+            <span class="setting-desc">Folder inside your standard Downloads directory to save files.</span>
+          </div>
+          <div class="setting-control">
+            <input type="text" id="subfolderInput" value="Xtractor">
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-text">
+            <label for="maxConnectionsSelect">Default HLS Parallel Connections</label>
+            <span class="setting-desc">Number of concurrent chunk downloads when using the Stream Downloader Studio.</span>
+          </div>
+          <div class="setting-control">
+            <select id="maxConnectionsSelect">
+              <option value="2">2 Connections (Slow/Safe)</option>
+              <option value="4" selected>4 Connections (Recommended)</option>
+              <option value="6">6 Connections (Fast)</option>
+              <option value="8">8 Connections (Ultra)</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Buttons -->
+      <div class="actions-row">
+        <button id="btnSave" class="btn btn-save">Save Settings</button>
+        <button id="btnReset" class="btn btn-reset">Restore Defaults</button>
+      </div>
+    </main>
+
+    <div class="toast" id="optToast">Settings saved successfully!</div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

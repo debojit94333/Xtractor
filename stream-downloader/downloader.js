@@ -1,0 +1,435 @@
+// Xtractor Stream Downloader & Merger Controller
+// Coordinates stream parsing, multi-threaded segment downloading, AES decryption, and file assembly.
+
+document.addEventListener('DOMContentLoaded', () => {
+  // DOM Elements
+  const streamUrlInput = document.getElementById('streamUrl');
+  const videoTitleInput = document.getElementById('videoTitle');
+  const concurrencySelect = document.getElementById('concurrencySelect');
+  const btnAnalyze = document.getElementById('btnAnalyze');
+
+  // Analysis Elements
+  const analysisCard = document.getElementById('analysisCard');
+  const variantSelectorGroup = document.getElementById('variantSelectorGroup');
+  const variantSelect = document.getElementById('variantSelect');
+  const statDuration = document.getElementById('statDuration');
+  const statSegments = document.getElementById('statSegments');
+  const statFormat = document.getElementById('statFormat');
+  const statEncryption = document.getElementById('statEncryption');
+  const btnStartDownload = document.getElementById('btnStartDownload');
+
+  // Progress Elements
+  const progressCard = document.getElementById('progressCard');
+  const progressStatus = document.getElementById('progressStatus');
+  const progressBarFill = document.getElementById('progressBarFill');
+  const progressPercent = document.getElementById('progressPercent');
+  const metricSegments = document.getElementById('metricSegments');
+  const metricSpeed = document.getElementById('metricSpeed');
+  const metricSize = document.getElementById('metricSize');
+  const metricEta = document.getElementById('metricEta');
+  const segmentGrid = document.getElementById('segmentGrid');
+  const btnPauseResume = document.getElementById('btnPauseResume');
+  const btnCancelDownload = document.getElementById('btnCancelDownload');
+
+  // Success Elements
+  const successCard = document.getElementById('successCard');
+  const mergedPlayer = document.getElementById('mergedPlayer');
+  const btnSaveFile = document.getElementById('btnSaveFile');
+  const studioToast = document.getElementById('studioToast');
+
+  // State
+  let currentMasterUrl = '';
+  let masterVariants = [];
+  let selectedMediaInfo = null;
+  let isDownloading = false;
+  let isPaused = false;
+  let isCancelled = false;
+
+  let downloadedChunks = [];
+  let chunkBuffers = [];
+  let totalBytesDownloaded = 0;
+  let speedInterval = null;
+  let lastBytes = 0;
+  let currentSpeedBps = 0;
+  let startTime = 0;
+  let activeWorkers = 0;
+  let segmentBlocks = [];
+  let finalMergedBlob = null;
+  let finalFilename = 'stream.mp4';
+
+  function showToast(msg, duration = 3000) {
+    studioToast.textContent = msg;
+    studioToast.classList.add('show');
+    setTimeout(() => {
+      studioToast.classList.remove('show');
+    }, duration);
+  }
+
+  function formatDuration(seconds) {
+    const s = Math.round(seconds);
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+    if (hrs > 0) {
+      return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let val = bytes;
+    while (val >= 1024 && i < units.length - 1) {
+      val /= 1024;
+      i++;
+    }
+    return `${val.toFixed(1)} ${units[i]}`;
+  }
+
+  // Parse query params (e.g. ?url=...&title=...)
+  const params = new URLSearchParams(window.location.search);
+  const paramUrl = params.get('url');
+  const paramTitle = params.get('title');
+
+  if (paramTitle) {
+    videoTitleInput.value = paramTitle.replace(/[<>:"/\\|?*]/g, '_');
+  }
+
+  if (paramUrl) {
+    streamUrlInput.value = paramUrl;
+    analyzeStream(paramUrl);
+  }
+
+  btnAnalyze.addEventListener('click', () => {
+    const url = streamUrlInput.value.trim();
+    if (!url) {
+      showToast('Please enter a valid M3U8 URL');
+      return;
+    }
+    analyzeStream(url);
+  });
+
+  // Step 1: Analyze Stream Playlist
+  async function analyzeStream(url) {
+    currentMasterUrl = url;
+    showToast('Analyzing stream playlist...');
+    btnAnalyze.disabled = true;
+
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP Error ${resp.status}`);
+      const text = await resp.text();
+
+      if (HlsParser.isMasterPlaylist(text)) {
+        masterVariants = HlsParser.parseMaster(text, url);
+        if (masterVariants.length === 0) {
+          throw new Error('Master playlist found but no valid stream variants detected.');
+        }
+
+        variantSelectorGroup.style.display = 'block';
+        variantSelect.innerHTML = '';
+        masterVariants.forEach((v, idx) => {
+          const opt = document.createElement('option');
+          opt.value = idx;
+          opt.textContent = `${v.qualityLabel} - ${Math.round(v.bandwidth / 1000)} kbps`;
+          variantSelect.appendChild(opt);
+        });
+
+        // Load metadata for the highest quality variant
+        await loadVariantMetadata(masterVariants[0].uri);
+
+        variantSelect.onchange = async () => {
+          const selectedIdx = parseInt(variantSelect.value, 10);
+          await loadVariantMetadata(masterVariants[selectedIdx].uri);
+        };
+      } else {
+        // Direct media playlist
+        variantSelectorGroup.style.display = 'none';
+        selectedMediaInfo = HlsParser.parseMedia(text, url);
+        updateMetadataDisplay(selectedMediaInfo);
+      }
+
+      analysisCard.style.display = 'block';
+      successCard.style.display = 'none';
+      progressCard.style.display = 'none';
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to analyze stream: ' + e.message);
+    } finally {
+      btnAnalyze.disabled = false;
+    }
+  }
+
+  async function loadVariantMetadata(variantUrl) {
+    try {
+      const resp = await fetch(variantUrl);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      selectedMediaInfo = HlsParser.parseMedia(text, variantUrl);
+      updateMetadataDisplay(selectedMediaInfo);
+    } catch (e) {
+      showToast('Error loading variant details: ' + e.message);
+    }
+  }
+
+  function updateMetadataDisplay(mediaInfo) {
+    statDuration.textContent = formatDuration(mediaInfo.totalDuration);
+    statSegments.textContent = `${mediaInfo.totalSegments} Chunks`;
+    statFormat.textContent = mediaInfo.isFmp4 ? 'Fragmented MP4 (fMP4)' : 'MPEG-2 TS';
+    statEncryption.textContent = mediaInfo.keyInfo ? mediaInfo.keyInfo.method : 'None (Clear)';
+  }
+
+  // Step 2: Start Download Process
+  btnStartDownload.addEventListener('click', () => {
+    if (!selectedMediaInfo || selectedMediaInfo.segments.length === 0) {
+      showToast('No media segments to download');
+      return;
+    }
+    startDownloadProcess();
+  });
+
+  async function startDownloadProcess() {
+    isDownloading = true;
+    isPaused = false;
+    isCancelled = false;
+
+    analysisCard.style.display = 'none';
+    progressCard.style.display = 'block';
+    successCard.style.display = 'none';
+    btnPauseResume.textContent = 'Pause';
+
+    const segments = selectedMediaInfo.segments;
+    const totalCount = segments.length;
+    downloadedChunks = new Array(totalCount).fill(null);
+    chunkBuffers = new Array(totalCount).fill(null);
+    totalBytesDownloaded = 0;
+    lastBytes = 0;
+    startTime = Date.now();
+
+    // Render Segment Grid
+    segmentGrid.innerHTML = '';
+    segmentBlocks = [];
+    for (let i = 0; i < totalCount; i++) {
+      const block = document.createElement('div');
+      block.className = 'segment-block';
+      block.title = `Segment #${i + 1}`;
+      segmentGrid.appendChild(block);
+      segmentBlocks.push(block);
+    }
+
+    // Start Speed Monitor
+    if (speedInterval) clearInterval(speedInterval);
+    speedInterval = setInterval(() => {
+      const deltaBytes = totalBytesDownloaded - lastBytes;
+      lastBytes = totalBytesDownloaded;
+      currentSpeedBps = deltaBytes * 2; // 500ms interval -> bytes/sec
+      metricSpeed.textContent = `${(currentSpeedBps / (1024 * 1024)).toFixed(1)} MB/s`;
+
+      // Update ETA
+      const completedCount = downloadedChunks.filter(Boolean).length;
+      const remainingCount = totalCount - completedCount;
+      if (currentSpeedBps > 0 && remainingCount > 0 && completedCount > 0) {
+        const avgSegmentBytes = totalBytesDownloaded / completedCount;
+        const remainingBytes = remainingCount * avgSegmentBytes;
+        const etaSeconds = Math.round(remainingBytes / currentSpeedBps);
+        metricEta.textContent = formatDuration(etaSeconds);
+      }
+    }, 500);
+
+    // Pre-fetch AES-128 key if encrypted
+    let keyBuffer = null;
+    let ivBuffer = null;
+    if (selectedMediaInfo.keyInfo && selectedMediaInfo.keyInfo.keyUri) {
+      progressStatus.textContent = 'Fetching stream encryption key...';
+      try {
+        const keyResp = await fetch(selectedMediaInfo.keyInfo.keyUri);
+        keyBuffer = await keyResp.arrayBuffer();
+
+        if (selectedMediaInfo.keyInfo.ivHex) {
+          const hex = selectedMediaInfo.keyInfo.ivHex.replace(/^0x/, '');
+          const ivArr = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+          ivBuffer = ivArr.buffer;
+        }
+      } catch (e) {
+        showToast('Warning: Failed to fetch encryption key. Stream may be DRM protected.');
+      }
+    }
+
+    // Pre-fetch fMP4 Init Segment if exists
+    let initBuffer = null;
+    if (selectedMediaInfo.initSegmentUri) {
+      progressStatus.textContent = 'Fetching initialization chunk...';
+      try {
+        const initResp = await fetch(selectedMediaInfo.initSegmentUri);
+        initBuffer = await initResp.arrayBuffer();
+        totalBytesDownloaded += initBuffer.byteLength;
+      } catch (e) {
+        console.error('Init segment fetch failed:', e);
+      }
+    }
+
+    // Worker Queue
+    const concurrency = parseInt(concurrencySelect.value, 10) || 4;
+    let nextIndex = 0;
+    let completedCount = 0;
+
+    progressStatus.textContent = `Downloading ${totalCount} segments with ${concurrency} connections...`;
+
+    async function worker() {
+      while (nextIndex < totalCount && !isCancelled) {
+        // Handle Pause
+        if (isPaused) {
+          await new Promise(r => setTimeout(r, 200));
+          continue;
+        }
+
+        const currentIndex = nextIndex++;
+        const segment = segments[currentIndex];
+        const block = segmentBlocks[currentIndex];
+
+        if (block) block.className = 'segment-block downloading';
+
+        // Fetch segment with retry logic
+        let success = false;
+        let attempts = 0;
+        let chunkData = null;
+
+        while (attempts < 3 && !success && !isCancelled) {
+          try {
+            attempts++;
+            const resp = await fetch(segment.uri);
+            if (!resp.ok) throw new Error(`Status ${resp.status}`);
+            chunkData = await resp.arrayBuffer();
+
+            // Decrypt if needed
+            if (keyBuffer) {
+              const iv = ivBuffer || new Uint8Array(16); // default IV is sequence number if null
+              chunkData = await HlsParser.decryptChunk(chunkData, keyBuffer, iv);
+            }
+
+            success = true;
+          } catch (err) {
+            if (attempts >= 3) {
+              console.error(`Chunk ${currentIndex} failed after 3 tries:`, err);
+            } else {
+              await new Promise(r => setTimeout(r, 500 * attempts));
+            }
+          }
+        }
+
+        if (success && chunkData) {
+          downloadedChunks[currentIndex] = true;
+          chunkBuffers[currentIndex] = chunkData;
+          totalBytesDownloaded += chunkData.byteLength;
+          completedCount++;
+
+          if (block) block.className = 'segment-block completed';
+
+          // Update Progress
+          const pct = Math.round((completedCount / totalCount) * 100);
+          progressBarFill.style.width = `${pct}%`;
+          progressPercent.textContent = `${pct}%`;
+          metricSegments.textContent = `${completedCount} / ${totalCount}`;
+          metricSize.textContent = formatBytes(totalBytesDownloaded);
+        } else {
+          if (block) block.className = 'segment-block failed';
+        }
+      }
+    }
+
+    // Launch worker pool
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) {
+      workers.push(worker());
+    }
+
+    await Promise.all(workers);
+
+    if (speedInterval) clearInterval(speedInterval);
+
+    if (isCancelled) {
+      progressStatus.textContent = 'Download cancelled.';
+      return;
+    }
+
+    // Step 3: Merge Segments
+    progressStatus.textContent = 'Merging video segments into single file...';
+    progressBarFill.style.width = '100%';
+    progressPercent.textContent = '100%';
+
+    const validChunks = [];
+    if (initBuffer) validChunks.push(initBuffer);
+
+    for (let i = 0; i < totalCount; i++) {
+      if (chunkBuffers[i]) {
+        validChunks.push(chunkBuffers[i]);
+      }
+    }
+
+    const cleanTitle = (videoTitleInput.value.trim() || 'Merged_Stream').replace(/[<>:"/\\|?*]/g, '_');
+    finalFilename = `${cleanTitle}.mp4`; // ALWAYS .mp4!
+
+    finalMergedBlob = new Blob(validChunks, { type: 'video/mp4' });
+
+    const objectUrl = URL.createObjectURL(finalMergedBlob);
+    mergedPlayer.src = objectUrl;
+
+    progressCard.style.display = 'none';
+    successCard.style.display = 'block';
+    showToast('Video stream assembled successfully!');
+  }
+
+  // Pause / Resume
+  btnPauseResume.addEventListener('click', () => {
+    isPaused = !isPaused;
+    btnPauseResume.textContent = isPaused ? 'Resume' : 'Pause';
+    progressStatus.textContent = isPaused ? 'Download paused' : 'Resuming download...';
+  });
+
+  // Cancel
+  btnCancelDownload.addEventListener('click', () => {
+    if (confirm('Are you sure you want to cancel this stream download?')) {
+      isCancelled = true;
+      if (speedInterval) clearInterval(speedInterval);
+      progressCard.style.display = 'none';
+      analysisCard.style.display = 'block';
+      showToast('Download cancelled');
+    }
+  });
+
+  // Save Merged File to Disk
+  btnSaveFile.addEventListener('click', () => {
+    if (!finalMergedBlob) return;
+
+    const objectUrl = URL.createObjectURL(finalMergedBlob);
+
+    // Try chrome.downloads API first
+    if (chrome.downloads) {
+      chrome.downloads.download({
+        url: objectUrl,
+        filename: finalFilename,
+        saveAs: true
+      }, (id) => {
+        if (chrome.runtime.lastError) {
+          triggerBrowserDownload(objectUrl, finalFilename);
+        } else {
+          showToast(`File saved: ${finalFilename}`);
+        }
+      });
+    } else {
+      triggerBrowserDownload(objectUrl, finalFilename);
+    }
+  });
+
+  function triggerBrowserDownload(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast(`Saved ${filename}`);
+  }
+});

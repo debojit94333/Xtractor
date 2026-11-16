@@ -1,0 +1,22 @@
+{
+  "name": "xtractor",
+  "version": "1.0.0",
+  "description": "Universal Video & Stream Downloader Browser Extension",
+  "main": "background/service_worker.js",
+  "scripts": {
+    "start": "node test-page/test-server.js",
+    "test": "node test/test-live-website.js",
+    "build": "node package-extension.js",
+    "icons": "node generate-icons.js"
+  },
+  "keywords": [
+    "chrome-extension",
+    "video-downloader",
+    "hls-downloader",
+    "m3u8",
+    "manifest-v3",
+    "stream-recorder"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xtractor Video Downloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <img src="../icons/icon32.png" alt="Xtractor" class="brand-icon">
+        <div class="brand-text">
+          <span class="brand-name">Xtractor</span>
+          <span class="brand-badge">VIDEO</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <!-- Force Deep Video Scan -->
+        <button id="btnForceDownload" class="icon-btn highlight-btn" title="Force Video Scan (Find Hidden Videos)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+        </button>
+        <!-- Rescan -->
+        <button id="btnRescan" class="icon-btn" title="Rescan Page">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/>
+          </svg>
+        </button>
+        <!-- Settings -->
+        <button id="btnOptions" class="icon-btn" title="Settings">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Filter Tabs & Search Bar -->
+    <div class="controls-section">
+      <div class="tabs">
+        <button class="tab-btn active" data-filter="all">All Videos <span id="countAll" class="tab-badge">0</span></button>
+        <button class="tab-btn" data-filter="video">Videos <span id="countVideo" class="tab-badge">0</span></button>
+        <button class="tab-btn" data-filter="audio">Audio <span id="countAudio" class="tab-badge">0</span></button>
+      </div>
+      <div class="search-row">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="Search videos...">
+        </div>
+        <button id="btnDownloadAll" class="btn-batch" style="display: none;" title="Download all detected videos">
+          Download All (<span id="batchCount">0</span>)
+        </button>
+      </div>
+    </div>
+
+    <!-- Media List Container -->
+    <main class="media-container" id="mediaList">
+      <!-- Injected dynamically -->
+    </main>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon-wrap">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+          <path d="M10 9l5 3-5 3V9z"/>
+        </svg>
+      </div>
+      <h3>No Video Found Yet</h3>
+      <p>Play the video on this page to let it load, then click <strong>Find Video</strong>.</p>
+      <div class="empty-actions">
+        <button id="btnForceEmpty" class="btn-primary highlight-bg">⚡ Find Video Now</button>
+      </div>
+    </div>
+
+    <!-- Video Preview Modal (with Universal Hls.js Playback) -->
+    <div class="preview-modal" id="previewModal">
+      <div class="preview-backdrop" id="previewBackdrop"></div>
+      <div class="preview-content">
+        <div class="preview-header">
+          <h4 id="previewTitle" class="truncate">Video Preview</h4>
+          <button id="btnClosePreview" class="icon-btn-sm">&times;</button>
+        </div>
+        <div class="preview-player-wrap">
+          <video id="previewPlayer" controls autoplay></video>
+        </div>
+        <div class="preview-footer">
+          <button id="btnDownloadFromPreview" class="btn-primary-sm" title="Fast high-speed video download">⚡ Download MP4</button>
+          <button id="btnRecordFromPreview" class="btn-secondary-sm" title="Record decoded video with 100% hardware-synced audio">🔴 Record (Synced Audio)</button>
+          <button id="btnSaveDirectStream" class="btn-outline-sm" title="Download direct original stream without transmuxing">💾 Direct Stream (.mp4)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span id="footerInfo">Ready</span>
+      <button id="btnClearMedia" class="link-btn">Clear</button>
+    </footer>
+  </div>
+
+  <script src="hls.min.js"></script>
+  <script src="mux.min.js"></script>
+  <script src="../stream-downloader/hls-parser.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

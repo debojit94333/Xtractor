@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xtractor - Stream Downloader Studio</title>
+  <link rel="stylesheet" href="downloader.css">
+</head>
+<body>
+  <div class="studio-container">
+    <!-- Header -->
+    <header class="studio-header">
+      <div class="brand">
+        <img src="../icons/icon32.png" alt="Xtractor" class="brand-icon">
+        <div class="brand-text">
+          <h1>Xtractor Stream Studio</h1>
+          <span class="brand-sub">Universal HLS & Media Stream Merger</span>
+        </div>
+      </div>
+      <div class="header-links">
+        <a href="../options/options.html" class="header-link">Settings</a>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="studio-body">
+      <!-- Input Card -->
+      <section class="card input-card">
+        <div class="card-header">
+          <h2>Stream Configuration</h2>
+          <span class="card-desc">Paste an M3U8 playlist URL or select one caught by the extension</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label for="streamUrl">M3U8 Stream URL</label>
+            <div class="input-action-group">
+              <input type="text" id="streamUrl" placeholder="https://example.com/video/master.m3u8" spellcheck="false">
+              <button id="btnAnalyze" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                Analyze Stream
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="videoTitle">Video Filename</label>
+            <input type="text" id="videoTitle" placeholder="My_Video" value="Stream_Video">
+          </div>
+          <div class="form-group">
+            <label for="concurrencySelect">Parallel Connections</label>
+            <select id="concurrencySelect">
+              <option value="2">2 Connections (Slow/Safe)</option>
+              <option value="4" selected>4 Connections (Recommended)</option>
+              <option value="6">6 Connections (High Speed)</option>
+              <option value="8">8 Connections (Ultra)</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Analysis / Quality Selection Card (hidden until analyzed) -->
+      <section class="card analysis-card" id="analysisCard" style="display: none;">
+        <div class="card-header">
+          <h2>Stream Analysis Results</h2>
+          <span class="card-desc">Select desired resolution and check stream details</span>
+        </div>
+        <div class="analysis-grid">
+          <div class="form-group" id="variantSelectorGroup">
+            <label for="variantSelect">Stream Quality</label>
+            <select id="variantSelect"></select>
+          </div>
+          <div class="meta-stats-grid">
+            <div class="meta-stat">
+              <span class="meta-label">Total Duration</span>
+              <span class="meta-val" id="statDuration">--:--</span>
+            </div>
+            <div class="meta-stat">
+              <span class="meta-label">Total Segments</span>
+              <span class="meta-val" id="statSegments">0 Chunks</span>
+            </div>
+            <div class="meta-stat">
+              <span class="meta-label">Stream Format</span>
+              <span class="meta-val" id="statFormat">MPEG-TS</span>
+            </div>
+            <div class="meta-stat">
+              <span class="meta-label">Encryption</span>
+              <span class="meta-val" id="statEncryption">None</span>
+            </div>
+          </div>
+        </div>
+        <div class="start-action-row">
+          <button id="btnStartDownload" class="btn btn-action-large">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+            Start Stream Download & Merge
+          </button>
+        </div>
+      </section>
+
+      <!-- Progress & Monitor Card (hidden until downloading) -->
+      <section class="card progress-card" id="progressCard" style="display: none;">
+        <div class="card-header progress-header">
+          <div>
+            <h2>Download Monitor</h2>
+            <span class="card-desc" id="progressStatus">Downloading segments...</span>
+          </div>
+          <div class="controls-row">
+            <button id="btnPauseResume" class="btn btn-secondary">Pause</button>
+            <button id="btnCancelDownload" class="btn btn-danger">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+        </div>
+        <div class="progress-percent-label" id="progressPercent">0%</div>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <span class="metric-title">Segments</span>
+            <span class="metric-value" id="metricSegments">0 / 0</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-title">Download Speed</span>
+            <span class="metric-value" id="metricSpeed">0.0 MB/s</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-title">Downloaded Size</span>
+            <span class="metric-value" id="metricSize">0.0 MB</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-title">Estimated Time Left</span>
+            <span class="metric-value" id="metricEta">--:--</span>
+          </div>
+        </div>
+
+        <!-- Visual Segment Map -->
+        <div class="segment-map-section">
+          <div class="segment-map-header">
+            <h3>Segment Map</h3>
+            <div class="map-legend">
+              <span class="legend-item"><span class="legend-color completed"></span> Done</span>
+              <span class="legend-item"><span class="legend-color downloading"></span> In-Progress</span>
+              <span class="legend-item"><span class="legend-color pending"></span> Pending</span>
+              <span class="legend-item"><span class="legend-color failed"></span> Failed</span>
+            </div>
+          </div>
+          <div class="segment-grid" id="segmentGrid"></div>
+        </div>
+      </section>
+
+      <!-- Completed Success Card (hidden until complete) -->
+      <section class="card success-card" id="successCard" style="display: none;">
+        <div class="success-banner">
+          <div class="success-icon">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <div class="success-text">
+            <h2>Download & Merge Complete!</h2>
+            <p id="successSummary">All stream segments were successfully assembled into a unified video file.</p>
+          </div>
+        </div>
+
+        <!-- Merged Video Player Preview -->
+        <div class="merged-preview-wrap">
+          <video id="mergedPlayer" controls></video>
+        </div>
+
+        <div class="download-save-row">
+          <button id="btnSaveFile" class="btn btn-action-large btn-save">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Save Merged Video File
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Notification Toast -->
+    <div class="toast" id="studioToast"></div>
+  </div>
+
+  <script src="mux.min.js"></script>
+  <script src="hls-parser.js"></script>
+  <script src="downloader.js"></script>
+</body>
+</html>

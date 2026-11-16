@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xtractor - Recording Mode Studio</title>
+  <link rel="stylesheet" href="recorder.css">
+</head>
+<body>
+  <div class="recorder-container">
+    <!-- Header -->
+    <header class="recorder-header">
+      <div class="brand">
+        <img src="../icons/icon32.png" alt="Xtractor" class="brand-icon">
+        <div class="brand-text">
+          <h1>Xtractor Recording Studio</h1>
+          <span class="brand-sub">CocoCut-Style Buffer & Stream Capture Engine</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="status-badge" id="recordingStatusBadge">READY</span>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="recorder-body">
+      <!-- Player & Live View -->
+      <section class="card player-card">
+        <div class="player-header">
+          <h2 id="videoTitleDisplay" class="truncate">Live Video Capture</h2>
+          <div class="format-select-group">
+            <label for="formatSelect">Format:</label>
+            <select id="formatSelect">
+              <option value="video/webm;codecs=vp9,opus">WebM (VP9/Opus - Fast)</option>
+              <option value="video/mp4" selected>MP4 (Universal)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="player-wrap">
+          <video id="captureVideoPlayer" controls autoplay muted></video>
+          <div class="recording-overlay" id="recordingOverlay" style="display: none;">
+            <div class="rec-dot"></div>
+            <span>RECORDING IN PROGRESS</span>
+          </div>
+        </div>
+
+        <!-- Buffer & Playback Timeline -->
+        <div class="timeline-container">
+          <div class="timeline-labels">
+            <span>Buffer Progress</span>
+            <span id="bufferPercentText">0% Buffered</span>
+          </div>
+          <div class="buffer-bar-track">
+            <div class="buffer-bar-fill" id="bufferBarFill" style="width: 0%;"></div>
+            <div class="playback-bar-fill" id="playbackBarFill" style="width: 0%;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Accelerator & Control Center -->
+      <section class="card controls-card">
+        <div class="controls-top">
+          <!-- Playback Speed Accelerator (CocoCut Style) -->
+          <div class="accelerator-section">
+            <span class="control-label">Turbo Acceleration (CocoCut Mode):</span>
+            <div class="speed-btn-group">
+              <button class="speed-btn active" data-speed="1">1x (Normal)</button>
+              <button class="speed-btn" data-speed="2">2x (Fast)</button>
+              <button class="speed-btn" data-speed="4">4x (Turbo)</button>
+              <button class="speed-btn" data-speed="8">8x (Ultra)</button>
+              <button class="speed-btn" data-speed="16">16x (Max)</button>
+            </div>
+            <span class="control-hint">Higher speed downloads and records the video much faster!</span>
+          </div>
+
+          <!-- Actions -->
+          <div class="action-buttons-group">
+            <button id="btnStartRecord" class="btn btn-record">
+              <span class="dot-icon"></span>
+              Start Recording
+            </button>
+            <button id="btnStopSave" class="btn btn-finish" disabled>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              Finish & Download Video
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Statistics Grid -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-title">Captured Time</span>
+            <span class="stat-val" id="statDuration">00:00</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-title">Recorded File Size</span>
+            <span class="stat-val" id="statSize">0.0 MB</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-title">Resolution</span>
+            <span class="stat-val" id="statResolution">-- x --</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-title">Auto-Stop</span>
+            <label class="checkbox-label">
+              <input type="checkbox" id="chkAutoStop" checked>
+              <span>When video ends</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Pro Tips Box (CocoCut Style) -->
+        <div class="tips-box">
+          <div class="tip-header">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#38bdf8" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <strong>CocoCut Pro Recording Tips:</strong>
+          </div>
+          <ul>
+            <li><strong>Accelerated Recording:</strong> Click <strong>4x</strong> or <strong>8x</strong> to buffer and capture the entire video in a fraction of its normal playtime.</li>
+            <li><strong>Buffer Drag:</strong> Once the buffer bar advances, you can drag the player scrub bar forward to speed up capture without dropping frames.</li>
+            <li><strong>100% Guaranteed:</strong> Recording Mode captures the direct decoded audio & video streams, bypassing any server-side chunking, tokens, or encryption.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="recorderToast"></div>
+  </div>
+
+  <script src="recorder.js"></script>
+</body>
+</html>
