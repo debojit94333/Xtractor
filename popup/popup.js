@@ -171,9 +171,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         let initSegment = null;
         const allDataParts = [];
+        let globalSequenceNumber = 0;
 
         // Helper to separate and order video fragments before audio fragments in each segment,
-        // and ensure default-base-is-moof flag (0x020000) is set for universal player compatibility.
+        // assign strictly monotonic sequence_number in mfhd, and ensure default-base-is-moof flag
+        // (0x020000) is set for smooth VLC / Windows Media Player playback and instant seeking.
         function reorderAndPatchBoxes(dataBytes) {
           let offset = 0;
           const boxes = [];
@@ -210,8 +212,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
           }
 
-          // Return video fragments first, then audio fragments for this segment
-          return [...videoBoxes, ...audioBoxes];
+          // Order video fragments first, then audio fragments for this segment
+          const orderedBoxes = [...videoBoxes, ...audioBoxes];
+
+          // Patch mfhd sequence_number to be strictly monotonic (0, 1, 2, 3...) in physical file order
+          // to completely prevent VLC "Fragment sequence discontinuity detected" clock resets and lag.
+          for (const box of orderedBoxes) {
+            const type = String.fromCharCode(box[4], box[5], box[6], box[7]);
+            if (type === 'moof' && box.length >= 24) {
+              if (box[12] === 0x6d && box[13] === 0x66 && box[14] === 0x68 && box[15] === 0x64) {
+                const seq = globalSequenceNumber++;
+                box[20] = (seq >>> 24) & 0xff;
+                box[21] = (seq >>> 16) & 0xff;
+                box[22] = (seq >>> 8) & 0xff;
+                box[23] = seq & 0xff;
+              }
+            }
+          }
+
+          return orderedBoxes;
         }
 
         transmuxer.on('data', (segment) => {
