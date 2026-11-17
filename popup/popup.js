@@ -167,37 +167,63 @@ document.addEventListener('DOMContentLoaded', async () => {
       };
 
       try {
-        const transmuxer = new window.muxjs.mp4.Transmuxer({
-          keepOriginalTimestamps: true,
-          remux: true
-        });
+        const transmuxer = new window.muxjs.mp4.Transmuxer();
 
         let initSegment = null;
-        const dataSegments = [];
+        const allDataParts = [];
+
+        // Helper to separate and order video fragments before audio fragments in each segment,
+        // and ensure default-base-is-moof flag (0x020000) is set for universal player compatibility.
+        function reorderAndPatchBoxes(dataBytes) {
+          let offset = 0;
+          const boxes = [];
+          while (offset <= dataBytes.length - 8) {
+            const size = (dataBytes[offset] << 24) | (dataBytes[offset + 1] << 16) | (dataBytes[offset + 2] << 8) | dataBytes[offset + 3];
+            if (size <= 0 || offset + size > dataBytes.length) break;
+            boxes.push(dataBytes.subarray(offset, offset + size));
+            offset += size;
+          }
+
+          const videoBoxes = [];
+          const audioBoxes = [];
+          let currentTarget = null;
+
+          for (const box of boxes) {
+            const type = String.fromCharCode(box[4], box[5], box[6], box[7]);
+            if (type === 'moof') {
+              let isVideo = true;
+              for (let i = 0; i < box.length - 12; i++) {
+                if (box[i] === 0x74 && box[i + 1] === 0x66 && box[i + 2] === 0x68 && box[i + 3] === 0x64) {
+                  // Enable default-base-is-moof flag (bit 17: 0x020000) on tfhd
+                  box[i + 5] |= 0x02;
+                  const trackId = (box[i + 8] << 24) | (box[i + 9] << 16) | (box[i + 10] << 8) | box[i + 11];
+                  if (trackId === 257) isVideo = false;
+                  break;
+                }
+              }
+              currentTarget = isVideo ? videoBoxes : audioBoxes;
+              currentTarget.push(box);
+            } else if (type === 'mdat') {
+              if (currentTarget) currentTarget.push(box);
+            } else {
+              videoBoxes.push(box);
+            }
+          }
+
+          // Return video fragments first, then audio fragments for this segment
+          return [...videoBoxes, ...audioBoxes];
+        }
 
         transmuxer.on('data', (segment) => {
           // Capture the init segment (ftyp + moov) on first emission
           if (segment.initSegment && segment.initSegment.byteLength > 0 && !initSegment) {
             initSegment = new Uint8Array(segment.initSegment);
           }
-          // Capture each data segment (moof + mdat)
+          // Capture and interleave media fragments
           if (segment.data && segment.data.byteLength > 0) {
-            dataSegments.push(new Uint8Array(segment.data));
+            const reordered = reorderAndPatchBoxes(new Uint8Array(segment.data));
+            allDataParts.push(...reordered);
           }
-        });
-
-        transmuxer.on('done', () => {
-          if (!initSegment || dataSegments.length === 0) {
-            console.warn('Transmux produced no output, falling back to raw TS');
-            safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
-            return;
-          }
-
-          // Build fMP4: [init segment (ftyp+moov)] + [data segments (moof+mdat)...]
-          const parts = [initSegment, ...dataSegments];
-          const blob = new Blob(parts, { type: 'video/mp4' });
-          console.log(`Transmux complete: ${dataSegments.length} data segments, ${(blob.size / 1048576).toFixed(1)} MB`);
-          safeResolve(blob);
         });
 
         transmuxer.on('error', (err) => {
@@ -205,22 +231,24 @@ document.addEventListener('DOMContentLoaded', async () => {
           safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
         });
 
-        // Feed each TS chunk to the transmuxer
+        // Transmux SEGMENT-BY-SEGMENT so video and audio are perfectly interleaved
+        // every 2 to 6 seconds throughout the MP4 container (never all audio first!).
         for (const chunk of tsChunks) {
           transmuxer.push(new Uint8Array(chunk));
+          transmuxer.flush();
         }
 
-        // Signal end of data — triggers 'done' event
-        transmuxer.flush();
-
-        // Safety fallback: if flush() completed but 'done' wasn't triggered
-        if (!resolved) {
-          if (initSegment && dataSegments.length > 0) {
-            safeResolve(new Blob([initSegment, ...dataSegments], { type: 'video/mp4' }));
-          } else {
-            safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
-          }
+        if (!initSegment || allDataParts.length === 0) {
+          console.warn('Transmux produced no output, falling back to raw TS');
+          safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+          return;
         }
+
+        // Build fMP4: [init segment (ftyp+moov)] + [interleaved video & audio fragments...]
+        const parts = [initSegment, ...allDataParts];
+        const blob = new Blob(parts, { type: 'video/mp4' });
+        console.log(`Transmux complete: ${allDataParts.length} fragments, ${(blob.size / 1048576).toFixed(1)} MB`);
+        safeResolve(blob);
       } catch (err) {
         console.error('Transmux exception:', err);
         safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
