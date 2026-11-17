@@ -18,5 +18,8 @@
     "stream-recorder"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "mediabunny": "^1.66.0"
+  }
 }
