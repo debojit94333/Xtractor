@@ -582,12 +582,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const objectUrl = URL.createObjectURL(finalMergedBlob);
 
+    // Register custom filename with background onDeterminingFilename
+    try {
+      chrome.runtime.sendMessage({
+        type: 'REGISTER_BLOB_DOWNLOAD',
+        url: objectUrl,
+        filename: finalFilename
+      });
+    } catch (_) {}
+
     // Try chrome.downloads API first
     if (chrome.downloads) {
       chrome.downloads.download({
         url: objectUrl,
         filename: finalFilename,
-        saveAs: true
+        saveAs: false
       }, (id) => {
         if (chrome.runtime.lastError) {
           triggerBrowserDownload(objectUrl, finalFilename);

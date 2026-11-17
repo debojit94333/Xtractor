@@ -3,6 +3,36 @@
 
 const tabMediaMap = new Map();
 const knownUrlsPerTab = new Map();
+const pendingBlobDownloads = new Map();
+
+// Guarantee that downloads retain their exact human-readable titles
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    // 1. Check registered blob downloads from Xtractor popup / downloader
+    if (pendingBlobDownloads.has(item.url)) {
+      const customName = pendingBlobDownloads.get(item.url);
+      pendingBlobDownloads.delete(item.url);
+      suggest({ filename: customName, conflictAction: 'uniquify' });
+      return true;
+    }
+
+    // 2. Prevent Chrome from saving blob downloads as random UUIDs
+    if (item.url && item.url.startsWith('blob:')) {
+      if (item.filename && !/^[0-9a-f-]{30,}\.mp4$/i.test(item.filename)) {
+        suggest({ filename: item.filename, conflictAction: 'uniquify' });
+        return true;
+      }
+    }
+
+    // 3. Downloads triggered by Xtractor
+    if (item.byExtensionId === chrome.runtime.id && item.filename) {
+      suggest({ filename: item.filename, conflictAction: 'uniquify' });
+      return true;
+    }
+
+    suggest();
+  });
+}
 
 // Default settings
 let userSettings = {
@@ -77,8 +107,20 @@ function sanitizeFilename(name) {
 function isGenericTitle(str) {
   if (!str) return true;
   const s = str.trim().toLowerCase();
-  if (s === 'video' || s === 'media' || s === 'audio' || s === 'player' || s === 'video player' || s === 'embed' || s === 'home' || s === 'untitled') return true;
+  const genericWords = [
+    'video', 'media', 'audio', 'player', 'video player', 'video_player',
+    'interactive video', 'interactive video player', 'interactive content', 'interactive_video',
+    'h5p', 'h5p interactive video', 'html5 video player', 'embedded video',
+    'embed', 'home', 'untitled', 'document', 'index', 'master', 'playlist',
+    'manifest', 'chunklist', 'stream', 'chunks', 'segment', 'output', 'variant',
+    'apna college', 'apnacollege', 'sigma', 'sigma 6.0', 'sigma 5.0', 'sigma 4.0',
+    'course', 'lecture', 'lesson', 'chapter', 'download', 'preview', 'playback',
+    'watch video', 'watch'
+  ];
+  if (genericWords.includes(s)) return true;
   if (/^video[_-]?\d*$/i.test(s) || /^media[_-]?\d*$/i.test(s) || /^blob:/i.test(s)) return true;
+  if (/^interactive[\s_-]*video/i.test(s)) return true;
+  if (/^h5p[\s_-]*/i.test(s)) return true;
   if (/^(master|index|playlist|manifest|chunklist|stream|chunks|segment|output|variant)$/i.test(s)) return true;
   if (/^[0-9a-f_-]{6,}$/i.test(s) || /^\d+$/.test(s)) return true;
   if (s.includes('_mp4_h264_') || s.includes('_hls_') || s.includes('chunk_')) return true;
@@ -89,7 +131,8 @@ function isGenericTitle(str) {
 function extractTitle(urlStr, headerTitle, pageTitle) {
   // 1. If pageTitle is provided and valid, prioritize it!
   if (pageTitle && pageTitle.trim()) {
-    let clean = pageTitle.trim().replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie).*$/i, '').trim();
+    let clean = pageTitle.trim().replace(/\s*[-|–—•:]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie|Apna College|ApnaCollege|Sigma 6\.0|Sigma 5\.0|Sigma 4\.0|Sigma|Coursera|Udemy|Physics Wallah|PW|Unacademy|GeeksforGeeks|GFG|Khan Academy|Classplus|Graphy|Teachable).*$/i, '').trim();
+    clean = clean.replace(/^(Watch|Playing|Video|Lecture|Lesson)\s*[-|–—•:]\s*/i, '');
     clean = clean.replace(/^Watch\s+/i, '').replace(/\s+Online\s*(Free)?$/i, '').trim();
     clean = sanitizeFilename(clean);
     if (clean.length > 2 && !isGenericTitle(clean)) {
@@ -456,6 +499,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       tabMediaMap.delete(targetTabId);
       knownUrlsPerTab.delete(targetTabId);
       updateTabBadge(targetTabId);
+      sendResponse({ success: true });
+      break;
+    }
+
+    case 'REGISTER_BLOB_DOWNLOAD': {
+      if (message.url && message.filename) {
+        pendingBlobDownloads.set(message.url, message.filename);
+        setTimeout(() => pendingBlobDownloads.delete(message.url), 120000);
+      }
       sendResponse({ success: true });
       break;
     }

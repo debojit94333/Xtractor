@@ -13,8 +13,9 @@
   function sanitizeTitle(str) {
     if (!str) return '';
     let s = str.trim();
-    // Strip common site suffixes
-    s = s.replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie).*$/i, '');
+    // Strip common site suffixes and branding
+    s = s.replace(/\s*[-|–—•:]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie|Apna College|ApnaCollege|Sigma 6\.0|Sigma 5\.0|Sigma 4\.0|Sigma|Coursera|Udemy|Physics Wallah|PW|Unacademy|GeeksforGeeks|GFG|Khan Academy|Classplus|Graphy|Teachable).*$/i, '');
+    s = s.replace(/^(Watch|Playing|Video|Lecture|Lesson)\s*[-|–—•:]\s*/i, '');
     s = s.replace(/^Watch\s+/i, '');
     s = s.replace(/\s+Online\s*(Free)?$/i, '');
     // Remove invalid filesystem characters
@@ -26,8 +27,20 @@
   function isGenericTitle(str) {
     if (!str) return true;
     const s = str.trim().toLowerCase();
-    if (s === 'video' || s === 'media' || s === 'audio' || s === 'player' || s === 'video player' || s === 'embed' || s === 'home' || s === 'untitled') return true;
+    const genericWords = [
+      'video', 'media', 'audio', 'player', 'video player', 'video_player',
+      'interactive video', 'interactive video player', 'interactive content', 'interactive_video',
+      'h5p', 'h5p interactive video', 'html5 video player', 'embedded video',
+      'embed', 'home', 'untitled', 'document', 'index', 'master', 'playlist',
+      'manifest', 'chunklist', 'stream', 'chunks', 'segment', 'output', 'variant',
+      'apna college', 'apnacollege', 'sigma', 'sigma 6.0', 'sigma 5.0', 'sigma 4.0',
+      'course', 'lecture', 'lesson', 'chapter', 'download', 'preview', 'playback',
+      'watch video', 'watch'
+    ];
+    if (genericWords.includes(s)) return true;
     if (/^video[_-]?\d*$/i.test(s) || /^media[_-]?\d*$/i.test(s) || /^blob:/i.test(s)) return true;
+    if (/^interactive[\s_-]*video/i.test(s)) return true;
+    if (/^h5p[\s_-]*/i.test(s)) return true;
     if (/^(master|index|playlist|manifest|chunklist|stream|chunks|segment|output|variant)$/i.test(s)) return true;
     if (/^[0-9a-f_-]{6,}$/i.test(s) || /^\d+$/.test(s)) return true;
     if (s.includes('_mp4_h264_') || s.includes('_hls_') || s.includes('chunk_')) return true;
@@ -36,15 +49,52 @@
 
   // Extract the true human-readable video title from the page DOM
   function getBestVideoTitle(videoEl) {
-    // 1. Direct video element attributes
-    if (videoEl) {
-      const elTitle = videoEl.getAttribute('title') || videoEl.getAttribute('aria-label');
-      if (elTitle && elTitle.trim().length > 2 && !isGenericTitle(elTitle)) {
-        return sanitizeTitle(elTitle);
-      }
+    // 1. Check Course / LMS active lesson in sidebar, accordion, or playlist (Apna College, Coursera, Udemy, etc.)
+    const activeLessonSelectors = [
+      '[class*="active"] [class*="lesson"]',
+      '[class*="active"] [class*="title"]',
+      '[class*="active"] [class*="name"]',
+      '[class*="selected"] [class*="title"]',
+      '[class*="current"] [class*="title"]',
+      '[class*="playing"] [class*="title"]',
+      '.lesson-item.active', '.video-item.active', '.curriculum-item.active',
+      '.sidebar-item.active', '.chapter-item.active',
+      '[aria-current="true"]', '[aria-selected="true"]',
+      '.lecture-title', '.lesson-title', '.video-title-text', '.topic-title',
+      '.course-lesson-title', '.lesson-name', '.lecture-name'
+    ];
+    for (const sel of activeLessonSelectors) {
+      try {
+        const els = document.querySelectorAll(sel);
+        for (const el of els) {
+          const text = el.innerText?.trim();
+          if (text && text.length >= 3 && text.length <= 150 && !isGenericTitle(text)) {
+            return sanitizeTitle(text);
+          }
+        }
+      } catch (_) {}
     }
 
-    // 2. OpenGraph metadata (og:title is the cleanest, most accurate video title on 95% of video sites!)
+    // 2. Modern video site heading selectors
+    const titleSelectors = [
+      'h1.title', 'h1.video-title', 'h1.lesson-title', '.video-info h1',
+      '[data-testid="video-title"]', '[data-testid="lesson-title"]',
+      '.video-title', '#video-title', '.film-name', '.anime-title', '.entry-title',
+      '.media-title', '.player-title', 'h1', 'h2.title', 'h2.video-title'
+    ];
+    for (const sel of titleSelectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && el.innerText) {
+          const text = el.innerText.trim();
+          if (text.length >= 3 && text.length <= 150 && !isGenericTitle(text)) {
+            return sanitizeTitle(text);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. OpenGraph metadata (og:title is the cleanest, most accurate video title on 95% of video sites!)
     const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
     if (ogTitle && ogTitle.trim() && !isGenericTitle(ogTitle)) {
       return sanitizeTitle(ogTitle);
@@ -60,22 +110,6 @@
       return sanitizeTitle(nameTitle);
     }
 
-    // 3. Modern video site heading selectors
-    const titleSelectors = [
-      'h1.title', 'h1.video-title', '.video-info h1', '[data-testid="video-title"]',
-      '.video-title', '#video-title', '.film-name', '.anime-title', '.entry-title',
-      '.media-title', '.player-title', 'h1'
-    ];
-    for (const sel of titleSelectors) {
-      const el = document.querySelector(sel);
-      if (el && el.innerText) {
-        const text = el.innerText.trim();
-        if (text.length > 2 && text.length < 150 && !isGenericTitle(text)) {
-          return sanitizeTitle(text);
-        }
-      }
-    }
-
     // 4. Document title
     if (document.title && document.title.trim()) {
       const cleanedDocTitle = sanitizeTitle(document.title);
@@ -84,7 +118,15 @@
       }
     }
 
-    // 5. If in an iframe, return empty string so top frame or URL resolves it
+    // 5. Direct video element attributes (last resort, strictly guarded against generic player titles)
+    if (videoEl) {
+      const elTitle = videoEl.getAttribute('title') || videoEl.getAttribute('aria-label');
+      if (elTitle && elTitle.trim().length > 2 && !isGenericTitle(elTitle)) {
+        return sanitizeTitle(elTitle);
+      }
+    }
+
+    // 6. If in an iframe, return empty string so top frame or URL resolves it
     return '';
   }
 

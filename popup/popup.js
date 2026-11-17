@@ -61,8 +61,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   function isGenericTitle(str) {
     if (!str) return true;
     const s = str.trim().toLowerCase();
-    if (s === 'video' || s === 'media' || s === 'audio' || s === 'player' || s === 'video player' || s === 'embed' || s === 'home' || s === 'untitled') return true;
+    const genericWords = [
+      'video', 'media', 'audio', 'player', 'video player', 'video_player',
+      'interactive video', 'interactive video player', 'interactive content', 'interactive_video',
+      'h5p', 'h5p interactive video', 'html5 video player', 'embedded video',
+      'embed', 'home', 'untitled', 'document', 'index', 'master', 'playlist',
+      'manifest', 'chunklist', 'stream', 'chunks', 'segment', 'output', 'variant',
+      'apna college', 'apnacollege', 'sigma', 'sigma 6.0', 'sigma 5.0', 'sigma 4.0',
+      'course', 'lecture', 'lesson', 'chapter', 'download', 'preview', 'playback',
+      'watch video', 'watch'
+    ];
+    if (genericWords.includes(s)) return true;
     if (/^video[_-]?\d*$/i.test(s) || /^media[_-]?\d*$/i.test(s) || /^blob:/i.test(s)) return true;
+    if (/^interactive[\s_-]*video/i.test(s)) return true;
+    if (/^h5p[\s_-]*/i.test(s)) return true;
     if (/^(master|index|playlist|manifest|chunklist|stream|chunks|segment|output|variant)$/i.test(s)) return true;
     if (/^[0-9a-f_-]{6,}$/i.test(s) || /^\d+$/.test(s)) return true;
     if (s.includes('_mp4_h264_') || s.includes('_hls_') || s.includes('chunk_')) return true;
@@ -73,7 +85,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!raw) return '';
     let t = raw.trim();
     // Strip site branding
-    t = t.replace(/\s*[-|–—•]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie).*$/i, '');
+    t = t.replace(/\s*[-|–—•:]\s*(YouTube|Vimeo|Dailymotion|Twitter|X|Facebook|TikTok|Twitch|Netflix|Hulu|Disney\+|Prime Video|Watch Online|Free Full|HD|1080p|720p|Official Video|Official Music Video|Video Player|Streaming|Movie|Full Movie|Apna College|ApnaCollege|Sigma 6\.0|Sigma 5\.0|Sigma 4\.0|Sigma|Coursera|Udemy|Physics Wallah|PW|Unacademy|GeeksforGeeks|GFG|Khan Academy|Classplus|Graphy|Teachable).*$/i, '');
+    t = t.replace(/^(Watch|Playing|Video|Lecture|Lesson)\s*[-|–—•:]\s*/i, '');
     t = t.replace(/^Watch\s+/i, '');
     t = t.replace(/\s+Online\s*(Free)?$/i, '');
     // Strip extension suffixes
@@ -324,7 +337,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function applyResolvedTitle(resolvedTitle) {
     if (!resolvedTitle || isGenericTitle(resolvedTitle)) return;
     allMedia.forEach(m => {
-      if (!m.title || isGenericTitle(m.title)) {
+      if (!m.title || isGenericTitle(m.title) || m.title.toLowerCase().includes('interactive video')) {
         m.title = resolvedTitle;
       }
     });
@@ -435,7 +448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const isStream = isHlsMedia(item);
-    const titleText = (item.title && !isGenericTitle(item.title)) 
+    const titleText = (item.title && !isGenericTitle(item.title) && !item.title.toLowerCase().includes('interactive video')) 
       ? item.title 
       : (activeTabTitle && !isGenericTitle(activeTabTitle) ? activeTabTitle : 'Video');
     item.title = titleText;
@@ -1084,21 +1097,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Single-File Save Helper: Ensures ONLY ONE file is EVER downloaded!
   function saveSingleFile(objectUrl, filename) {
+    const cleanName = sanitizeFilename(filename.replace(/\.mp4$/i, '')) + '.mp4';
+
+    // Register with background onDeterminingFilename listener to prevent Chrome from naming blob as UUID
+    try {
+      chrome.runtime.sendMessage({
+        type: 'REGISTER_BLOB_DOWNLOAD',
+        url: objectUrl,
+        filename: cleanName
+      });
+    } catch (_) {}
+
     if (chrome.downloads) {
       chrome.downloads.download({
         url: objectUrl,
-        filename,
+        filename: cleanName,
         saveAs: false
       }, (downloadId) => {
         if (chrome.runtime.lastError) {
           // Fallback to anchor click only if chrome.downloads failed!
-          saveViaAnchor(objectUrl, filename);
+          saveViaAnchor(objectUrl, cleanName);
         } else {
           setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
         }
       });
     } else {
-      saveViaAnchor(objectUrl, filename);
+      saveViaAnchor(objectUrl, cleanName);
     }
   }
 
@@ -1108,8 +1132,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    }, 1000);
   }
 
   // -------------------------------------------------------------
