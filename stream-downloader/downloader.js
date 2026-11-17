@@ -88,6 +88,83 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${val.toFixed(1)} ${units[i]}`;
   }
 
+  /**
+   * Transmux MPEG-TS chunks into a proper MP4 container using mux.js.
+   * Produces fragmented MP4 (fMP4) with moof/mdat pairs that contain
+   * tfdt (base decode time) and trun (sample table) boxes — enabling
+   * players to seek instantly without 2-second stutter/scans.
+   */
+  async function transmuxTsToMp4(tsChunks) {
+    if (!window.muxjs || !window.muxjs.mp4 || !window.muxjs.mp4.Transmuxer) {
+      console.warn('mux.js not available, falling back to raw TS concatenation');
+      return new Blob(tsChunks, { type: 'video/mp4' });
+    }
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (blob) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(blob);
+        }
+      };
+
+      try {
+        const transmuxer = new window.muxjs.mp4.Transmuxer({
+          keepOriginalTimestamps: true,
+          remux: true
+        });
+
+        let initSegment = null;
+        const dataSegments = [];
+
+        transmuxer.on('data', (segment) => {
+          if (segment.initSegment && segment.initSegment.byteLength > 0 && !initSegment) {
+            initSegment = new Uint8Array(segment.initSegment);
+          }
+          if (segment.data && segment.data.byteLength > 0) {
+            dataSegments.push(new Uint8Array(segment.data));
+          }
+        });
+
+        transmuxer.on('done', () => {
+          if (!initSegment || dataSegments.length === 0) {
+            console.warn('Transmux produced no output, falling back to raw TS');
+            safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+            return;
+          }
+
+          const parts = [initSegment, ...dataSegments];
+          const blob = new Blob(parts, { type: 'video/mp4' });
+          console.log(`Transmux complete: ${dataSegments.length} data segments, ${(blob.size / 1048576).toFixed(1)} MB`);
+          safeResolve(blob);
+        });
+
+        transmuxer.on('error', (err) => {
+          console.error('Transmux error:', err);
+          safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+        });
+
+        for (const chunk of tsChunks) {
+          transmuxer.push(new Uint8Array(chunk));
+        }
+
+        transmuxer.flush();
+
+        if (!resolved) {
+          if (initSegment && dataSegments.length > 0) {
+            safeResolve(new Blob([initSegment, ...dataSegments], { type: 'video/mp4' }));
+          } else {
+            safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+          }
+        }
+      } catch (err) {
+        console.error('Transmux exception:', err);
+        safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+      }
+    });
+  }
+
   // Parse query params (e.g. ?url=...&title=...)
   const params = new URLSearchParams(window.location.search);
   const paramUrl = params.get('url');
@@ -371,7 +448,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const cleanTitle = (videoTitleInput.value.trim() || 'Merged_Stream').replace(/[<>:"/\\|?*]/g, '_');
     finalFilename = `${cleanTitle}.mp4`; // ALWAYS .mp4!
 
-    finalMergedBlob = new Blob(validChunks, { type: 'video/mp4' });
+    if (selectedMediaInfo && !selectedMediaInfo.isFmp4) {
+      progressStatus.textContent = 'Transmuxing video to MP4 container (enabling instant seek)...';
+      finalMergedBlob = await transmuxTsToMp4(validChunks);
+    } else {
+      finalMergedBlob = new Blob(validChunks, { type: 'video/mp4' });
+    }
 
     const objectUrl = URL.createObjectURL(finalMergedBlob);
     mergedPlayer.src = objectUrl;

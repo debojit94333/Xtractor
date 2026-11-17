@@ -142,6 +142,92 @@ document.addEventListener('DOMContentLoaded', async () => {
     return null;
   }
 
+  /**
+   * Transmux MPEG-TS chunks into a proper MP4 container using mux.js.
+   * Produces fragmented MP4 (fMP4) with moof/mdat pairs that contain
+   * tfdt (base decode time) and trun (sample table) boxes — enabling
+   * players to seek efficiently without scanning the entire file.
+   *
+   * @param {ArrayBuffer[]} tsChunks - Array of MPEG-TS segment buffers
+   * @returns {Blob} - MP4 blob ready for download
+   */
+  async function transmuxTsToMp4(tsChunks) {
+    if (!window.muxjs || !window.muxjs.mp4 || !window.muxjs.mp4.Transmuxer) {
+      console.warn('mux.js not available, falling back to raw TS concatenation');
+      return new Blob(tsChunks, { type: 'video/mp4' });
+    }
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (blob) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(blob);
+        }
+      };
+
+      try {
+        const transmuxer = new window.muxjs.mp4.Transmuxer({
+          keepOriginalTimestamps: true,
+          remux: true
+        });
+
+        let initSegment = null;
+        const dataSegments = [];
+
+        transmuxer.on('data', (segment) => {
+          // Capture the init segment (ftyp + moov) on first emission
+          if (segment.initSegment && segment.initSegment.byteLength > 0 && !initSegment) {
+            initSegment = new Uint8Array(segment.initSegment);
+          }
+          // Capture each data segment (moof + mdat)
+          if (segment.data && segment.data.byteLength > 0) {
+            dataSegments.push(new Uint8Array(segment.data));
+          }
+        });
+
+        transmuxer.on('done', () => {
+          if (!initSegment || dataSegments.length === 0) {
+            console.warn('Transmux produced no output, falling back to raw TS');
+            safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+            return;
+          }
+
+          // Build fMP4: [init segment (ftyp+moov)] + [data segments (moof+mdat)...]
+          const parts = [initSegment, ...dataSegments];
+          const blob = new Blob(parts, { type: 'video/mp4' });
+          console.log(`Transmux complete: ${dataSegments.length} data segments, ${(blob.size / 1048576).toFixed(1)} MB`);
+          safeResolve(blob);
+        });
+
+        transmuxer.on('error', (err) => {
+          console.error('Transmux error:', err);
+          safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+        });
+
+        // Feed each TS chunk to the transmuxer
+        for (const chunk of tsChunks) {
+          transmuxer.push(new Uint8Array(chunk));
+        }
+
+        // Signal end of data — triggers 'done' event
+        transmuxer.flush();
+
+        // Safety fallback: if flush() completed but 'done' wasn't triggered
+        if (!resolved) {
+          if (initSegment && dataSegments.length > 0) {
+            safeResolve(new Blob([initSegment, ...dataSegments], { type: 'video/mp4' }));
+          } else {
+            safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+          }
+        }
+      } catch (err) {
+        console.error('Transmux exception:', err);
+        safeResolve(new Blob(tsChunks, { type: 'video/mp4' }));
+      }
+    });
+  }
+
   // Get active tab
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tabs && tabs[0]) {
@@ -591,7 +677,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (validChunks.length === 0) {
         throw new Error('Could not download stream segments');
       }
-      const directBlob = new Blob(validChunks, { type: 'video/mp4' });
+
+      // Transmux MPEG-TS to proper MP4 for fast seeking; fMP4 streams pass through as-is
+      let directBlob;
+      if (mediaInfo && !mediaInfo.isFmp4) {
+        directBlob = await transmuxTsToMp4(validChunks);
+      } else {
+        directBlob = new Blob(validChunks, { type: 'video/mp4' });
+      }
+
       const finalFilename = `${cleanTitle}.mp4`;
       const objectUrl = URL.createObjectURL(directBlob);
       saveSingleFile(objectUrl, finalFilename);
@@ -821,7 +915,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (labelSpan) labelSpan.textContent = 'Saving Video (MP4)...';
 
-      // Assemble into 100% genuine MP4 container!
+      // Assemble into 100% genuine MP4 container with proper seek index!
       // Output filename is strictly .mp4 - never .ts (eliminates unknown extension error)!
       const finalFilename = `${cleanTitle}.mp4`;
       let finalBlob = null;
@@ -834,11 +928,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (audioChunkBuffers.length > 0) allParts.push(...audioChunkBuffers);
         finalBlob = new Blob(allParts, { type: 'video/mp4' });
       } else {
-        // MPEG-TS stream: 100% contiguous transport stream with multiplexed H.264 video + AAC audio.
-        // Saved as .mp4 so Windows/Mac associates it with standard video players.
-        // VLC Media Player, PotPlayer, MPC-HC, and Windows Media Player open and play it smoothly
-        // with BOTH video and audio working simultaneously, and ZERO player crashes!
-        finalBlob = new Blob(validChunks, { type: 'video/mp4' });
+        // MPEG-TS stream: transmux to proper fMP4 container with seek index
+        // This enables instant seeking in VLC/MPC-HC/PotPlayer instead of 2-sec delay
+        if (labelSpan) labelSpan.textContent = 'Converting to MP4...';
+        finalBlob = await transmuxTsToMp4(validChunks);
       }
 
       const objectUrl = URL.createObjectURL(finalBlob);
