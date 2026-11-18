@@ -475,12 +475,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       </div>
       <div class="card-actions">
-        <button class="btn-download" data-id="${item.id}">
+        <button class="btn-download" data-id="${item.id}" title="Click to Download">
           <span class="btn-progress-bar"></span>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+          <svg class="icon-dl" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
           </svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="display: none;">
+            <rect x="6" y="4" width="4" height="16" rx="1"/>
+            <rect x="14" y="4" width="4" height="16" rx="1"/>
+          </svg>
+          <svg class="icon-resume" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="display: none;">
+            <polygon points="6 4 20 12 6 20 6 4"/>
+          </svg>
           <span class="btn-label">${isBlob ? 'Capture Video' : 'Download Video'}</span>
+        </button>
+        <button class="btn-pause-download" data-id="${item.id}" title="Pause / Resume Download" style="display: none;">
+          <svg class="icon-pause" viewBox="0 0 24 24" width="11" height="11" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" rx="1"/>
+            <rect x="14" y="4" width="4" height="16" rx="1"/>
+          </svg>
+          <svg class="icon-resume" viewBox="0 0 24 24" width="11" height="11" fill="currentColor" style="display: none;">
+            <polygon points="6 4 20 12 6 20 6 4"/>
+          </svg>
+          <span class="pause-label">Pause</span>
         </button>
         <button class="btn-secondary btn-preview" data-id="${item.id}">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
@@ -508,7 +525,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     const dlBtn = card.querySelector('.btn-download');
+    const pauseBtn = card.querySelector('.btn-pause-download');
+
     dlBtn.addEventListener('click', () => {
+      // If this item is currently downloading or paused, clicking the bar toggles Pause / Resume!
+      const activeCtrl = activeDownloads.get(item.id);
+      if (activeCtrl) {
+        togglePauseDownload(item.id);
+        return;
+      }
+
       const currentTitle = titleInput.value.trim() || item.title || activeTabTitle || 'Video';
       item.title = currentTitle;
 
@@ -520,6 +546,45 @@ document.addEventListener('DOMContentLoaded', async () => {
         downloadDirectVideo(item, dlBtn);
       }
     });
+
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePauseDownload(item.id);
+      });
+    }
+
+    // Restore active downloading / paused UI if card re-renders
+    const existingCtrl = activeDownloads.get(item.id);
+    if (existingCtrl) {
+      existingCtrl.btnElement = dlBtn;
+      existingCtrl.pauseBtn = pauseBtn;
+      if (existingCtrl.isPaused) {
+        updateDownloadProgress(dlBtn, existingCtrl.currentPercent, `⏸ Paused (${existingCtrl.currentPercent}%)`, 'paused');
+        if (pauseBtn) {
+          pauseBtn.style.display = 'inline-flex';
+          pauseBtn.classList.add('paused');
+          const pIcon = pauseBtn.querySelector('.icon-pause');
+          const rIcon = pauseBtn.querySelector('.icon-resume');
+          const label = pauseBtn.querySelector('.pause-label');
+          if (pIcon) pIcon.style.display = 'none';
+          if (rIcon) rIcon.style.display = 'inline-block';
+          if (label) label.textContent = 'Resume';
+        }
+      } else {
+        updateDownloadProgress(dlBtn, existingCtrl.currentPercent, existingCtrl.lastStatusText, 'downloading');
+        if (pauseBtn) {
+          pauseBtn.style.display = 'inline-flex';
+          pauseBtn.classList.remove('paused');
+          const pIcon = pauseBtn.querySelector('.icon-pause');
+          const rIcon = pauseBtn.querySelector('.icon-resume');
+          const label = pauseBtn.querySelector('.pause-label');
+          if (pIcon) pIcon.style.display = 'inline-block';
+          if (rIcon) rIcon.style.display = 'none';
+          if (label) label.textContent = 'Pause';
+        }
+      }
+    }
 
     const prevBtn = card.querySelector('.btn-preview');
     prevBtn.addEventListener('click', () => {
@@ -690,6 +755,67 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function downloadDirectHlsStream(item) {
     const btnElement = (item && item.id) ? document.querySelector(`.btn-download[data-id="${item.id}"]`) : null;
     const previewBtn = document.getElementById('btnSaveDirectStream');
+    const card = btnElement ? btnElement.closest('.media-card') : null;
+    const pauseBtn = card ? card.querySelector('.btn-pause-download') : null;
+    const ctrlId = item.id || item.url;
+
+    if (activeDownloads.has(ctrlId)) {
+      togglePauseDownload(ctrlId);
+      return;
+    }
+
+    const ctrl = {
+      id: ctrlId,
+      isPaused: false,
+      isCancelled: false,
+      currentPercent: 0,
+      btnElement,
+      previewBtn,
+      pauseBtn,
+      pause() {
+        this.isPaused = true;
+        updateDownloadProgress(this.btnElement, this.currentPercent, `⏸ Paused (${this.currentPercent}%)`, 'paused');
+        updateDownloadProgress(this.previewBtn, this.currentPercent, `⏸ Paused (${this.currentPercent}%)`, 'paused');
+        if (this.pauseBtn) {
+          this.pauseBtn.classList.add('paused');
+          const pIcon = this.pauseBtn.querySelector('.icon-pause');
+          const rIcon = this.pauseBtn.querySelector('.icon-resume');
+          const label = this.pauseBtn.querySelector('.pause-label');
+          if (pIcon) pIcon.style.display = 'none';
+          if (rIcon) rIcon.style.display = 'inline-block';
+          if (label) label.textContent = 'Resume';
+        }
+        showToast('Download paused');
+      },
+      resume() {
+        this.isPaused = false;
+        updateDownloadProgress(this.btnElement, this.currentPercent, `Downloading ${this.currentPercent}%`, 'downloading');
+        updateDownloadProgress(this.previewBtn, this.currentPercent, `Downloading ${this.currentPercent}%`, 'downloading');
+        if (this.pauseBtn) {
+          this.pauseBtn.classList.remove('paused');
+          const pIcon = this.pauseBtn.querySelector('.icon-pause');
+          const rIcon = this.pauseBtn.querySelector('.icon-resume');
+          const label = this.pauseBtn.querySelector('.pause-label');
+          if (pIcon) pIcon.style.display = 'inline-block';
+          if (rIcon) rIcon.style.display = 'none';
+          if (label) label.textContent = 'Pause';
+        }
+        showToast('Resuming download...');
+      }
+    };
+
+    activeDownloads.set(ctrlId, ctrl);
+    if (pauseBtn) {
+      pauseBtn.style.display = 'inline-flex';
+      pauseBtn.classList.remove('paused');
+      const pIcon = pauseBtn.querySelector('.icon-pause');
+      const rIcon = pauseBtn.querySelector('.icon-resume');
+      const label = pauseBtn.querySelector('.pause-label');
+      if (pIcon) pIcon.style.display = 'inline-block';
+      if (rIcon) rIcon.style.display = 'none';
+      if (label) label.textContent = 'Pause';
+    }
+
     updateDownloadProgress(btnElement, 0, 'Preparing...', 'downloading');
     updateDownloadProgress(previewBtn, 0, 'Preparing...', 'downloading');
 
@@ -745,12 +871,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       let completed = 0;
 
       async function worker() {
-        while (nextIndex < totalCount) {
+        while (nextIndex < totalCount && !ctrl.isCancelled) {
+          while (ctrl.isPaused && !ctrl.isCancelled) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+          if (ctrl.isCancelled || nextIndex >= totalCount) break;
+
           const idx = nextIndex++;
           const seg = segments[idx];
           let buf = null;
           let attempts = 0;
-          while (attempts < 4 && !buf) {
+          while (attempts < 4 && !buf && !ctrl.isCancelled) {
+            while (ctrl.isPaused && !ctrl.isCancelled) {
+              await new Promise(r => setTimeout(r, 200));
+            }
+            if (ctrl.isCancelled) break;
+
             attempts++;
             try {
               buf = await fetchSegmentBuffer(seg.uri, activeTabId);
@@ -758,12 +894,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 chunkBuffers[idx] = buf;
                 completed++;
                 const pct = Math.round((completed / totalCount) * 100);
-                updateDownloadProgress(btnElement, pct, `Downloading ${pct}%`, 'downloading');
-                updateDownloadProgress(previewBtn, pct, `Downloading ${pct}%`, 'downloading');
+                ctrl.currentPercent = pct;
+                if (!ctrl.isPaused) {
+                  updateDownloadProgress(btnElement, pct, `Downloading ${pct}%`, 'downloading');
+                  updateDownloadProgress(previewBtn, pct, `Downloading ${pct}%`, 'downloading');
+                }
                 break;
               }
             } catch (e) {}
-            if (!buf && attempts < 4) await new Promise(r => setTimeout(r, 200 * attempts));
+            if (!buf && attempts < 4 && !ctrl.isCancelled) await new Promise(r => setTimeout(r, 200 * attempts));
           }
         }
       }
@@ -775,6 +914,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Rescue pass for any missing chunks
       for (let i = 0; i < totalCount; i++) {
+        while (ctrl.isPaused && !ctrl.isCancelled) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+        if (ctrl.isCancelled) break;
+
         if (!chunkBuffers[i]) {
           try {
             const rescueBuf = await fetchSegmentBuffer(segments[i].uri, activeTabId);
@@ -813,6 +957,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast('Download error: ' + err.message);
       updateDownloadProgress(btnElement, 0, 'Download Video', 'reset');
       updateDownloadProgress(previewBtn, 0, 'Direct Stream', 'reset');
+    } finally {
+      activeDownloads.delete(ctrlId);
+      if (pauseBtn) pauseBtn.style.display = 'none';
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Active Downloads Controller (Pause / Resume Support)
+  // -------------------------------------------------------------
+  const activeDownloads = new Map(); // id -> controller
+
+  function togglePauseDownload(id) {
+    const ctrl = activeDownloads.get(id);
+    if (!ctrl) return;
+    if (ctrl.isPaused) {
+      ctrl.resume();
+    } else {
+      ctrl.pause();
     }
   }
 
@@ -830,28 +992,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (state === 'downloading') {
       btnElement.classList.add('downloading');
+      btnElement.classList.remove('paused', 'optimizing', 'completed');
+      btnElement.setAttribute('title', 'Click to Pause download');
+      if (card) {
+        card.classList.add('downloading');
+        card.classList.remove('paused', 'optimizing');
+      }
+      if (bar) bar.style.width = `${clampedPct}%`;
+      if (cardBar) cardBar.style.width = `${clampedPct}%`;
+      if (label && statusText) label.textContent = statusText;
+    } else if (state === 'paused') {
+      btnElement.classList.add('downloading', 'paused');
       btnElement.classList.remove('optimizing', 'completed');
-      if (card) { card.classList.add('downloading'); card.classList.remove('optimizing'); }
+      btnElement.setAttribute('title', 'Click to Resume download');
+      if (card) {
+        card.classList.add('downloading', 'paused');
+        card.classList.remove('optimizing');
+      }
       if (bar) bar.style.width = `${clampedPct}%`;
       if (cardBar) cardBar.style.width = `${clampedPct}%`;
       if (label && statusText) label.textContent = statusText;
     } else if (state === 'optimizing') {
       btnElement.classList.add('downloading', 'optimizing');
-      btnElement.classList.remove('completed');
-      if (card) { card.classList.add('downloading', 'optimizing'); }
+      btnElement.classList.remove('paused', 'completed');
+      btnElement.setAttribute('title', 'Finalizing seek index...');
+      if (card) {
+        card.classList.add('downloading', 'optimizing');
+        card.classList.remove('paused');
+      }
       if (bar) bar.style.width = `${clampedPct}%`;
       if (cardBar) cardBar.style.width = `${clampedPct}%`;
       if (label && statusText) label.textContent = statusText;
     } else if (state === 'completed') {
-      btnElement.classList.remove('downloading', 'optimizing');
+      btnElement.classList.remove('downloading', 'paused', 'optimizing');
       btnElement.classList.add('completed');
-      if (card) { card.classList.remove('downloading', 'optimizing'); }
+      btnElement.setAttribute('title', 'Download complete');
+      if (card) { card.classList.remove('downloading', 'paused', 'optimizing'); }
       if (bar) bar.style.width = '100%';
       if (cardBar) cardBar.style.width = '100%';
       if (label) label.textContent = statusText || '✓ Saved!';
     } else if (state === 'reset') {
-      btnElement.classList.remove('downloading', 'optimizing', 'completed');
-      if (card) { card.classList.remove('downloading', 'optimizing'); }
+      btnElement.classList.remove('downloading', 'paused', 'optimizing', 'completed');
+      btnElement.setAttribute('title', 'Click to Download');
+      if (card) { card.classList.remove('downloading', 'paused', 'optimizing'); }
       if (bar) bar.style.width = '0%';
       if (cardBar) cardBar.style.width = '0%';
       if (label) label.textContent = statusText || 'Download Video';
@@ -866,6 +1049,66 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!btnElement && item && item.id) {
       btnElement = document.querySelector(`.btn-download[data-id="${item.id}"]`);
     }
+
+    const card = btnElement ? btnElement.closest('.media-card') : null;
+    const pauseBtn = card ? card.querySelector('.btn-pause-download') : null;
+    const ctrlId = item.id || item.url;
+
+    if (activeDownloads.has(ctrlId)) {
+      togglePauseDownload(ctrlId);
+      return;
+    }
+
+    const ctrl = {
+      id: ctrlId,
+      isPaused: false,
+      isCancelled: false,
+      currentPercent: 0,
+      lastStatusText: 'Downloading 0%',
+      btnElement,
+      pauseBtn,
+      pause() {
+        this.isPaused = true;
+        updateDownloadProgress(this.btnElement, this.currentPercent, `⏸ Paused (${this.currentPercent}%)`, 'paused');
+        if (this.pauseBtn) {
+          this.pauseBtn.classList.add('paused');
+          const pIcon = this.pauseBtn.querySelector('.icon-pause');
+          const rIcon = this.pauseBtn.querySelector('.icon-resume');
+          const label = this.pauseBtn.querySelector('.pause-label');
+          if (pIcon) pIcon.style.display = 'none';
+          if (rIcon) rIcon.style.display = 'inline-block';
+          if (label) label.textContent = 'Resume';
+        }
+        showToast('Download paused');
+      },
+      resume() {
+        this.isPaused = false;
+        updateDownloadProgress(this.btnElement, this.currentPercent, this.lastStatusText, 'downloading');
+        if (this.pauseBtn) {
+          this.pauseBtn.classList.remove('paused');
+          const pIcon = this.pauseBtn.querySelector('.icon-pause');
+          const rIcon = this.pauseBtn.querySelector('.icon-resume');
+          const label = this.pauseBtn.querySelector('.pause-label');
+          if (pIcon) pIcon.style.display = 'inline-block';
+          if (rIcon) rIcon.style.display = 'none';
+          if (label) label.textContent = 'Pause';
+        }
+        showToast('Resuming download...');
+      }
+    };
+
+    activeDownloads.set(ctrlId, ctrl);
+    if (pauseBtn) {
+      pauseBtn.style.display = 'inline-flex';
+      pauseBtn.classList.remove('paused');
+      const pIcon = pauseBtn.querySelector('.icon-pause');
+      const rIcon = pauseBtn.querySelector('.icon-resume');
+      const label = pauseBtn.querySelector('.pause-label');
+      if (pIcon) pIcon.style.display = 'inline-block';
+      if (rIcon) rIcon.style.display = 'none';
+      if (label) label.textContent = 'Pause';
+    }
+
     updateDownloadProgress(btnElement, 0, 'Preparing...', 'downloading');
 
     const cleanTitle = sanitizeFilename(item.title || activeTabTitle || 'Video');
@@ -972,14 +1215,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       let nextIndex = 0;
 
       async function worker() {
-        while (nextIndex < totalCount) {
+        while (nextIndex < totalCount && !ctrl.isCancelled) {
+          while (ctrl.isPaused && !ctrl.isCancelled) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+          if (ctrl.isCancelled || nextIndex >= totalCount) break;
+
           const idx = nextIndex++;
           const seg = segments[idx];
 
           let buf = null;
           let attempts = 0;
 
-          while (attempts < 4 && !buf) {
+          while (attempts < 4 && !buf && !ctrl.isCancelled) {
+            while (ctrl.isPaused && !ctrl.isCancelled) {
+              await new Promise(r => setTimeout(r, 200));
+            }
+            if (ctrl.isCancelled) break;
+
             attempts++;
             try {
               buf = await fetchSegmentBuffer(seg.uri, activeTabId);
@@ -1001,13 +1254,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 chunkBuffers[idx] = buf;
                 completed++;
                 const pct = Math.round((completed / totalCount) * 100);
-                updateDownloadProgress(btnElement, pct, `Downloading ${pct}% (${completed}/${totalCount})`, 'downloading');
+                ctrl.currentPercent = pct;
+                ctrl.lastStatusText = `Downloading ${pct}% (${completed}/${totalCount})`;
+                if (!ctrl.isPaused) {
+                  updateDownloadProgress(btnElement, pct, ctrl.lastStatusText, 'downloading');
+                }
                 break;
               }
             } catch (e) {
               console.warn(`Segment ${idx} error:`, e);
             }
-            if (!buf && attempts < 4) {
+            if (!buf && attempts < 4 && !ctrl.isCancelled) {
               await new Promise(r => setTimeout(r, 250 * attempts));
             }
           }
@@ -1021,8 +1278,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Rescue pass: retry any segments that missed download to guarantee 100% contiguous stream!
       const missingCount = chunkBuffers.filter(c => !c).length;
       if (missingCount > 0) {
-        updateDownloadProgress(btnElement, 98, `Rescuing ${missingCount} segments...`, 'downloading');
+        ctrl.lastStatusText = `Rescuing ${missingCount} segments...`;
+        if (!ctrl.isPaused) {
+          updateDownloadProgress(btnElement, 98, ctrl.lastStatusText, 'downloading');
+        }
         for (let i = 0; i < totalCount; i++) {
+          while (ctrl.isPaused && !ctrl.isCancelled) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+          if (ctrl.isCancelled) break;
+
           if (!chunkBuffers[i]) {
             try {
               let rBuf = await fetchSegmentBuffer(segments[i].uri, activeTabId);
@@ -1051,12 +1316,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Fetch separate audio segments if present in stream
       const audioChunkBuffers = [];
       if (audioMediaInfo && audioMediaInfo.segments.length > 0) {
-        updateDownloadProgress(btnElement, 98, 'Downloading audio...', 'downloading');
+        ctrl.lastStatusText = 'Downloading audio...';
+        if (!ctrl.isPaused) {
+          updateDownloadProgress(btnElement, 98, ctrl.lastStatusText, 'downloading');
+        }
         const aSegs = audioMediaInfo.segments;
         const aBuffers = new Array(aSegs.length).fill(null);
         let aNext = 0;
         async function audioWorker() {
-          while (aNext < aSegs.length) {
+          while (aNext < aSegs.length && !ctrl.isCancelled) {
+            while (ctrl.isPaused && !ctrl.isCancelled) {
+              await new Promise(r => setTimeout(r, 200));
+            }
+            if (ctrl.isCancelled || aNext >= aSegs.length) break;
+
             const aIdx = aNext++;
             const aSeg = aSegs[aIdx];
             try {
@@ -1111,6 +1384,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.error(err);
       showToast('Download error: ' + err.message);
       updateDownloadProgress(btnElement, 0, 'Download Video', 'reset');
+    } finally {
+      activeDownloads.delete(ctrlId);
+      if (pauseBtn) pauseBtn.style.display = 'none';
     }
   }
 
@@ -1121,6 +1397,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!btnElement && item && item.id) {
       btnElement = document.querySelector(`.btn-download[data-id="${item.id}"]`);
     }
+    const card = btnElement ? btnElement.closest('.media-card') : null;
+    const pauseBtn = card ? card.querySelector('.btn-pause-download') : null;
+    const ctrlId = item.id || item.url;
+
+    if (activeDownloads.has(ctrlId)) {
+      togglePauseDownload(ctrlId);
+      return;
+    }
+
     const cleanTitle = sanitizeFilename(item.title || activeTabTitle || 'Video');
     const isAudio = item.category === 'audio';
     const ext = isAudio ? 'mp3' : 'mp4';
@@ -1137,7 +1422,62 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, (res) => {
       if (res && res.success) {
         showToast(`✓ Download started: ${finalFilename}`);
-        updateDownloadProgress(btnElement, 100, '✓ Saved!', 'completed');
+        const downloadId = res.downloadId;
+
+        if (downloadId && chrome.downloads) {
+          const ctrl = {
+            id: ctrlId,
+            isPaused: false,
+            btnElement,
+            pauseBtn,
+            pause() {
+              this.isPaused = true;
+              chrome.downloads.pause(downloadId, () => {
+                updateDownloadProgress(this.btnElement, 50, '⏸ Paused', 'paused');
+                if (this.pauseBtn) {
+                  this.pauseBtn.classList.add('paused');
+                  const pIcon = this.pauseBtn.querySelector('.icon-pause');
+                  const rIcon = this.pauseBtn.querySelector('.icon-resume');
+                  const label = this.pauseBtn.querySelector('.pause-label');
+                  if (pIcon) pIcon.style.display = 'none';
+                  if (rIcon) rIcon.style.display = 'inline-block';
+                  if (label) label.textContent = 'Resume';
+                }
+                showToast('Download paused');
+              });
+            },
+            resume() {
+              this.isPaused = false;
+              chrome.downloads.resume(downloadId, () => {
+                updateDownloadProgress(this.btnElement, 50, 'Downloading...', 'downloading');
+                if (this.pauseBtn) {
+                  this.pauseBtn.classList.remove('paused');
+                  const pIcon = this.pauseBtn.querySelector('.icon-pause');
+                  const rIcon = this.pauseBtn.querySelector('.icon-resume');
+                  const label = this.pauseBtn.querySelector('.pause-label');
+                  if (pIcon) pIcon.style.display = 'inline-block';
+                  if (rIcon) rIcon.style.display = 'none';
+                  if (label) label.textContent = 'Pause';
+                }
+                showToast('Resuming download...');
+              });
+            }
+          };
+
+          activeDownloads.set(ctrlId, ctrl);
+          if (pauseBtn) {
+            pauseBtn.style.display = 'inline-flex';
+            pauseBtn.classList.remove('paused');
+            const pIcon = pauseBtn.querySelector('.icon-pause');
+            const rIcon = pauseBtn.querySelector('.icon-resume');
+            const label = pauseBtn.querySelector('.pause-label');
+            if (pIcon) pIcon.style.display = 'inline-block';
+            if (rIcon) rIcon.style.display = 'none';
+            if (label) label.textContent = 'Pause';
+          }
+        } else {
+          updateDownloadProgress(btnElement, 100, '✓ Saved!', 'completed');
+        }
       } else {
         // Fallback to authenticated page fetch
         showToast('Saving video via page context...');
@@ -1154,6 +1494,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Download failed: ' + (pageRes?.error || 'Network error'));
             updateDownloadProgress(btnElement, 0, 'Download Video', 'reset');
           }
+          activeDownloads.delete(ctrlId);
+          if (pauseBtn) pauseBtn.style.display = 'none';
         });
       }
     });
@@ -1370,6 +1712,20 @@ document.addEventListener('DOMContentLoaded', async () => {
               .replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;')
               .replace(/'/g, '&#039;');
+  }
+
+  if (chrome.downloads && chrome.downloads.onChanged) {
+    chrome.downloads.onChanged.addListener((delta) => {
+      if (delta.state && (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
+        for (const [id, ctrl] of activeDownloads.entries()) {
+          if (ctrl.btnElement && delta.state.current === 'complete') {
+            updateDownloadProgress(ctrl.btnElement, 100, '✓ Saved!', 'completed');
+          }
+          activeDownloads.delete(id);
+          if (ctrl.pauseBtn) ctrl.pauseBtn.style.display = 'none';
+        }
+      }
+    });
   }
 
   // Initial load

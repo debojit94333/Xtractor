@@ -461,7 +461,12 @@ body {
   background: rgba(15, 23, 42, 0.85);
   border-color: rgba(56, 189, 248, 0.4);
   box-shadow: 0 0 14px rgba(14, 165, 233, 0.25), inset 0 1px 2px rgba(0, 0, 0, 0.5);
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.btn-download.downloading:hover {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.4), inset 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .btn-download.downloading .btn-progress-bar {
@@ -488,6 +493,81 @@ body {
 @keyframes barShimmer {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+/* Paused state: amber glowing progress with frozen shimmer */
+.btn-download.paused {
+  background: rgba(28, 25, 23, 0.9);
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.25), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.btn-download.paused:hover {
+  border-color: rgba(245, 158, 11, 0.85);
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.45), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.btn-download.paused .btn-progress-bar {
+  opacity: 1;
+  background: linear-gradient(90deg, #d97706 0%, #f59e0b 50%, #fbbf24 100%);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+}
+
+.btn-download.paused .btn-progress-bar::after {
+  animation-play-state: paused;
+}
+
+.media-card.paused .card-progress-fill {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.7);
+}
+
+/* Icon visibility switches inside .btn-download */
+.btn-download.downloading .icon-dl { display: none !important; }
+.btn-download.downloading .icon-pause { display: inline-block !important; }
+.btn-download.downloading .icon-resume { display: none !important; }
+
+.btn-download.paused .icon-dl { display: none !important; }
+.btn-download.paused .icon-pause { display: none !important; }
+.btn-download.paused .icon-resume { display: inline-block !important; }
+
+.btn-download.completed .icon-pause,
+.btn-download.completed .icon-resume { display: none !important; }
+.btn-download.completed .icon-dl { display: inline-block !important; }
+
+/* Dedicated Pause/Resume Button in Card Actions */
+.btn-pause-download {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-pause-download:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-pause-download.paused {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+}
+
+.btn-pause-download.paused:hover {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: rgba(245, 158, 11, 0.75);
 }
 
 /* Optimizing / Transmuxing stage (purple / violet gradient) */
