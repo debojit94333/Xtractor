@@ -374,6 +374,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Listen for live background download progress events
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'DOWNLOAD_PROGRESS') {
+      updateCardDownloadState(msg.streamUrl, msg.percent, msg.completed, msg.total, msg.status, msg.finalFilename);
+    } else if (msg.type === 'DOWNLOAD_COMPLETED') {
+      updateCardDownloadState(msg.streamUrl, 100, 1, 1, 'completed', msg.finalFilename);
+      showToast(`✓ Downloaded: ${msg.finalFilename}`);
+    }
+  });
+
   function updateCounts() {
     const total = allMedia.length;
     const videos = allMedia.filter(m => m.category === 'video').length;
@@ -423,12 +433,58 @@ document.addEventListener('DOMContentLoaded', async () => {
       const card = createMediaCard(item);
       mediaList.appendChild(card);
     });
+
+    restoreActiveDownloadStates();
+  }
+
+  // Helper to update card UI state based on stream URL
+  function updateCardDownloadState(streamUrl, percent, completed, total, status, finalFilename) {
+    const cards = mediaList.querySelectorAll('.media-card');
+    for (const card of cards) {
+      if (card.dataset.url === streamUrl) {
+        const btn = card.querySelector('.btn-download');
+        const label = btn ? btn.querySelector('.btn-label') : null;
+        if (!btn || !label) break;
+
+        if (status === 'downloading' || status === 'preparing') {
+          btn.classList.add('downloading');
+          btn.classList.remove('completed');
+          label.textContent = (total > 0) ? `Downloading ${percent}% (${completed}/${total})` : 'Downloading...';
+        } else if (status === 'transmuxing') {
+          btn.classList.add('downloading');
+          btn.classList.remove('completed');
+          label.textContent = 'Optimizing MP4...';
+        } else if (status === 'completed') {
+          btn.classList.remove('downloading');
+          btn.classList.add('completed');
+          label.textContent = '✓ Saved!';
+        } else if (status === 'error') {
+          btn.classList.remove('downloading');
+          label.textContent = 'Download Video';
+        }
+        break;
+      }
+    }
+  }
+
+  function restoreActiveDownloadStates() {
+    chrome.storage.local.get(null, (items) => {
+      if (!items) return;
+      allMedia.forEach(m => {
+        const state = items[`dl_${m.url}`];
+        if (state && (Date.now() - (state.timestamp || 0) < 3600000)) {
+          updateCardDownloadState(m.url, state.percent, state.completed, state.total, state.status, state.finalFilename);
+        }
+      });
+    });
   }
 
   // Create Video Card with Title Display & Editing
   function createMediaCard(item) {
     const card = document.createElement('div');
     card.className = 'media-card';
+    card.dataset.url = item.url;
+    card.dataset.id = item.id;
 
     const isAudio = item.category === 'audio';
     const isBlob = item.isBlobPlayer || item.format === 'BLOB';
@@ -805,6 +861,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cleanTitle = sanitizeFilename(item.title || activeTabTitle || 'Video');
     showToast(`Downloading: ${cleanTitle}...`);
 
+    // 1. Try launching Background Download via offscreen document so closing popup doesn't cancel it!
+    let backgroundStarted = false;
+    try {
+      const bgRes = await new Promise(resolve => {
+        chrome.runtime.sendMessage({
+          type: 'START_BACKGROUND_DOWNLOAD',
+          item: {
+            url: item.url,
+            title: cleanTitle,
+            activeTabId
+          }
+        }, resolve);
+      });
+      if (bgRes && bgRes.success) {
+        backgroundStarted = true;
+        console.log('[Popup] Background download started for:', cleanTitle);
+      }
+    } catch (_) {}
+
+    if (backgroundStarted) {
+      if (labelSpan) labelSpan.textContent = 'Downloading in background...';
+      return;
+    }
+
     try {
       let text = '';
       // 1. Try direct fetch first
@@ -900,7 +980,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       const segments = mediaInfo.segments;
       const totalCount = segments.length;
       const chunkBuffers = new Array(totalCount).fill(null);
+
+      // Check IndexedDB persistent cache so re-opening or retrying never re-downloads
+      const cachedMap = window.SegmentCache ? await SegmentCache.getAllCachedSegments(targetMediaUrl) : new Map();
       let completed = 0;
+      for (let i = 0; i < totalCount; i++) {
+        if (cachedMap.has(i)) {
+          chunkBuffers[i] = cachedMap.get(i);
+          completed++;
+        }
+      }
+      if (completed > 0) {
+        const pct = Math.round((completed / totalCount) * 100);
+        if (labelSpan) labelSpan.textContent = `Restored ${pct}% (${completed}/${totalCount})`;
+      }
 
       const concurrency = Math.min(4, totalCount);
       let nextIndex = 0;
@@ -908,6 +1001,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       async function worker() {
         while (nextIndex < totalCount) {
           const idx = nextIndex++;
+          if (chunkBuffers[idx]) continue;
           const seg = segments[idx];
 
           let buf = null;
@@ -933,6 +1027,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 chunkBuffers[idx] = buf;
+                if (window.SegmentCache) {
+                  SegmentCache.saveCachedSegment(targetMediaUrl, idx, buf).catch(() => {});
+                }
                 completed++;
                 const pct = Math.round((completed / totalCount) * 100);
                 if (labelSpan) labelSpan.textContent = `Downloading ${pct}% (${completed}/${totalCount})`;
@@ -974,6 +1071,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                   rBuf = await HlsParser.decryptChunk(rBuf, keyBuffer, ivBuf);
                 }
                 chunkBuffers[i] = rBuf;
+                if (window.SegmentCache) {
+                  SegmentCache.saveCachedSegment(targetMediaUrl, i, rBuf).catch(() => {});
+                }
                 completed++;
               }
             } catch (e) {}
@@ -1037,6 +1137,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Trigger SINGLE download with EXACT video title!
       saveSingleFile(objectUrl, finalFilename);
+
+      if (window.SegmentCache) {
+        SegmentCache.clearCachedSegmentsForStream(targetMediaUrl).catch(() => {});
+      }
 
       showToast(`✓ Downloaded: ${finalFilename}`);
       if (labelSpan) labelSpan.textContent = '✓ Saved!';
