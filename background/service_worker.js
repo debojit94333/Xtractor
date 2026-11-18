@@ -5,27 +5,6 @@ const tabMediaMap = new Map();
 const knownUrlsPerTab = new Map();
 const pendingBlobDownloads = new Map();
 
-let offscreenCreating = null;
-
-async function setupOffscreenDocument() {
-  if (chrome.offscreen && chrome.offscreen.hasDocument) {
-    if (await chrome.offscreen.hasDocument()) {
-      return;
-    }
-    if (offscreenCreating) {
-      await offscreenCreating;
-    } else {
-      offscreenCreating = chrome.offscreen.createDocument({
-        url: 'background/offscreen.html',
-        reasons: ['BLOBS'],
-        justification: 'Download HLS stream segments and transmux MP4 in background'
-      });
-      await offscreenCreating;
-      offscreenCreating = null;
-    }
-  }
-}
-
 // Guarantee that downloads retain their exact human-readable titles
 if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
@@ -531,41 +510,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       sendResponse({ success: true });
       break;
-    }
-
-    case 'START_BACKGROUND_DOWNLOAD': {
-      setupOffscreenDocument().then(async () => {
-        let attempts = 0;
-        let responseReceived = false;
-        while (attempts < 5 && !responseReceived) {
-          attempts++;
-          try {
-            const res = await new Promise((resolve) => {
-              chrome.runtime.sendMessage({
-                type: 'START_OFFSCREEN_DOWNLOAD',
-                item: message.item
-              }, (response) => {
-                if (chrome.runtime.lastError) {
-                  resolve(null);
-                } else {
-                  resolve(response);
-                }
-              });
-            });
-            if (res && res.success) {
-              responseReceived = true;
-              sendResponse({ success: true });
-              return;
-            }
-          } catch (_) {}
-          await new Promise(r => setTimeout(r, 150));
-        }
-        sendResponse({ success: responseReceived });
-      }).catch((err) => {
-        console.warn('Offscreen creation error:', err);
-        sendResponse({ success: false, error: err.message });
-      });
-      return true;
     }
 
     // Direct Download - Safe and clean (NO forbidden headers like Origin/Referer in chrome.downloads)

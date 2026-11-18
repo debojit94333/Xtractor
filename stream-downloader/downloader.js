@@ -39,7 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // State
   let currentMasterUrl = '';
-  let currentMediaUrl = '';
   let masterVariants = [];
   let selectedMediaInfo = null;
   let isDownloading = false;
@@ -309,18 +308,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Load metadata for the highest quality variant
-        currentMediaUrl = masterVariants[0].uri;
         await loadVariantMetadata(masterVariants[0].uri);
 
         variantSelect.onchange = async () => {
           const selectedIdx = parseInt(variantSelect.value, 10);
-          currentMediaUrl = masterVariants[selectedIdx].uri;
-          await loadVariantMetadata(currentMediaUrl);
+          await loadVariantMetadata(masterVariants[selectedIdx].uri);
         };
       } else {
         // Direct media playlist
         variantSelectorGroup.style.display = 'none';
-        currentMediaUrl = url;
         selectedMediaInfo = HlsParser.parseMedia(text, url);
         updateMetadataDisplay(selectedMediaInfo);
       }
@@ -449,39 +445,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let nextIndex = 0;
     let completedCount = 0;
 
-    // Check IndexedDB persistent segment cache
-    const streamTargetUrl = currentMediaUrl || currentMasterUrl || '';
-    let cachedMap = new Map();
-    if (window.SegmentCache && streamTargetUrl) {
-      try {
-        cachedMap = await SegmentCache.getAllCachedSegments(streamTargetUrl);
-      } catch (e) {
-        console.warn('Failed reading segment cache:', e);
-      }
-    }
-
-    for (let i = 0; i < totalCount; i++) {
-      if (cachedMap.has(i)) {
-        const cData = cachedMap.get(i);
-        downloadedChunks[i] = true;
-        chunkBuffers[i] = cData;
-        totalBytesDownloaded += cData.byteLength;
-        completedCount++;
-        const block = segmentBlocks[i];
-        if (block) block.className = 'segment-block completed';
-      }
-    }
-
-    if (completedCount > 0) {
-      const pct = Math.round((completedCount / totalCount) * 100);
-      progressBarFill.style.width = `${pct}%`;
-      progressPercent.textContent = `${pct}%`;
-      metricSegments.textContent = `${completedCount} / ${totalCount}`;
-      metricSize.textContent = formatBytes(totalBytesDownloaded);
-      progressStatus.textContent = `Restored ${completedCount}/${totalCount} segments from cache. Resuming...`;
-    } else {
-      progressStatus.textContent = `Downloading ${totalCount} segments with ${concurrency} connections...`;
-    }
+    progressStatus.textContent = `Downloading ${totalCount} segments with ${concurrency} connections...`;
 
     async function worker() {
       while (nextIndex < totalCount && !isCancelled) {
@@ -492,10 +456,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const currentIndex = nextIndex++;
-        if (downloadedChunks[currentIndex]) {
-          continue; // Already downloaded or restored from cache!
-        }
-
         const segment = segments[currentIndex];
         const block = segmentBlocks[currentIndex];
 
@@ -534,10 +494,6 @@ document.addEventListener('DOMContentLoaded', () => {
           chunkBuffers[currentIndex] = chunkData;
           totalBytesDownloaded += chunkData.byteLength;
           completedCount++;
-
-          if (window.SegmentCache && streamTargetUrl) {
-            SegmentCache.saveCachedSegment(streamTargetUrl, currentIndex, chunkData).catch(() => {});
-          }
 
           if (block) block.className = 'segment-block completed';
 
@@ -596,11 +552,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const objectUrl = URL.createObjectURL(finalMergedBlob);
     mergedPlayer.src = objectUrl;
-
-    // Clear cached chunks now that assembly succeeded
-    if (window.SegmentCache && streamTargetUrl) {
-      SegmentCache.clearCachedSegmentsForStream(streamTargetUrl).catch(() => {});
-    }
 
     progressCard.style.display = 'none';
     successCard.style.display = 'block';

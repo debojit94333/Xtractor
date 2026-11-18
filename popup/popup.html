@@ -89,9 +89,15 @@
           <video id="previewPlayer" controls autoplay></video>
         </div>
         <div class="preview-footer">
-          <button id="btnDownloadFromPreview" class="btn-primary-sm" title="Fast high-speed video download">⚡ Download MP4</button>
+          <button id="btnDownloadFromPreview" class="btn-primary-sm" title="Fast high-speed video download">
+            <span class="btn-progress-bar"></span>
+            <span class="btn-label">⚡ Download MP4</span>
+          </button>
           <button id="btnRecordFromPreview" class="btn-secondary-sm" title="Record decoded video with 100% hardware-synced audio">🔴 Record (Synced Audio)</button>
-          <button id="btnSaveDirectStream" class="btn-outline-sm" title="Download direct original stream without transmuxing">💾 Direct Stream (.mp4)</button>
+          <button id="btnSaveDirectStream" class="btn-outline-sm" title="Download direct original stream without transmuxing">
+            <span class="btn-progress-bar"></span>
+            <span class="btn-label">💾 Direct Stream (.mp4)</span>
+          </button>
         </div>
       </div>
     </div>
@@ -110,7 +116,6 @@
   <script src="hls.min.js"></script>
   <script src="mux.min.js"></script>
   <script src="../stream-downloader/hls-parser.js"></script>
-  <script src="segment-cache.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
