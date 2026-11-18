@@ -489,16 +489,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           </svg>
           <span class="btn-label">${isBlob ? 'Capture Video' : 'Download Video'}</span>
         </button>
-        <button class="btn-pause-download" data-id="${item.id}" title="Pause / Resume Download" style="display: none;">
-          <svg class="icon-pause" viewBox="0 0 24 24" width="11" height="11" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" rx="1"/>
-            <rect x="14" y="4" width="4" height="16" rx="1"/>
-          </svg>
-          <svg class="icon-resume" viewBox="0 0 24 24" width="11" height="11" fill="currentColor" style="display: none;">
-            <polygon points="6 4 20 12 6 20 6 4"/>
-          </svg>
-          <span class="pause-label">Pause</span>
-        </button>
         <button class="btn-secondary btn-preview" data-id="${item.id}">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/>
@@ -525,7 +515,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     const dlBtn = card.querySelector('.btn-download');
-    const pauseBtn = card.querySelector('.btn-pause-download');
 
     dlBtn.addEventListener('click', () => {
       // If this item is currently downloading or paused, clicking the bar toggles Pause / Resume!
@@ -547,42 +536,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    if (pauseBtn) {
-      pauseBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        togglePauseDownload(item.id);
-      });
-    }
-
     // Restore active downloading / paused UI if card re-renders
     const existingCtrl = activeDownloads.get(item.id);
     if (existingCtrl) {
       existingCtrl.btnElement = dlBtn;
-      existingCtrl.pauseBtn = pauseBtn;
       if (existingCtrl.isPaused) {
         updateDownloadProgress(dlBtn, existingCtrl.currentPercent, `⏸ Paused (${existingCtrl.currentPercent}%)`, 'paused');
-        if (pauseBtn) {
-          pauseBtn.style.display = 'inline-flex';
-          pauseBtn.classList.add('paused');
-          const pIcon = pauseBtn.querySelector('.icon-pause');
-          const rIcon = pauseBtn.querySelector('.icon-resume');
-          const label = pauseBtn.querySelector('.pause-label');
-          if (pIcon) pIcon.style.display = 'none';
-          if (rIcon) rIcon.style.display = 'inline-block';
-          if (label) label.textContent = 'Resume';
-        }
       } else {
         updateDownloadProgress(dlBtn, existingCtrl.currentPercent, existingCtrl.lastStatusText, 'downloading');
-        if (pauseBtn) {
-          pauseBtn.style.display = 'inline-flex';
-          pauseBtn.classList.remove('paused');
-          const pIcon = pauseBtn.querySelector('.icon-pause');
-          const rIcon = pauseBtn.querySelector('.icon-resume');
-          const label = pauseBtn.querySelector('.pause-label');
-          if (pIcon) pIcon.style.display = 'inline-block';
-          if (rIcon) rIcon.style.display = 'none';
-          if (label) label.textContent = 'Pause';
-        }
       }
     }
 
@@ -755,8 +716,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function downloadDirectHlsStream(item) {
     const btnElement = (item && item.id) ? document.querySelector(`.btn-download[data-id="${item.id}"]`) : null;
     const previewBtn = document.getElementById('btnSaveDirectStream');
-    const card = btnElement ? btnElement.closest('.media-card') : null;
-    const pauseBtn = card ? card.querySelector('.btn-pause-download') : null;
     const ctrlId = item.id || item.url;
 
     if (activeDownloads.has(ctrlId)) {
@@ -771,50 +730,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentPercent: 0,
       btnElement,
       previewBtn,
-      pauseBtn,
       pause() {
         this.isPaused = true;
         updateDownloadProgress(this.btnElement, this.currentPercent, `⏸ Paused (${this.currentPercent}%)`, 'paused');
         updateDownloadProgress(this.previewBtn, this.currentPercent, `⏸ Paused (${this.currentPercent}%)`, 'paused');
-        if (this.pauseBtn) {
-          this.pauseBtn.classList.add('paused');
-          const pIcon = this.pauseBtn.querySelector('.icon-pause');
-          const rIcon = this.pauseBtn.querySelector('.icon-resume');
-          const label = this.pauseBtn.querySelector('.pause-label');
-          if (pIcon) pIcon.style.display = 'none';
-          if (rIcon) rIcon.style.display = 'inline-block';
-          if (label) label.textContent = 'Resume';
-        }
         showToast('Download paused');
       },
       resume() {
         this.isPaused = false;
         updateDownloadProgress(this.btnElement, this.currentPercent, `Downloading ${this.currentPercent}%`, 'downloading');
         updateDownloadProgress(this.previewBtn, this.currentPercent, `Downloading ${this.currentPercent}%`, 'downloading');
-        if (this.pauseBtn) {
-          this.pauseBtn.classList.remove('paused');
-          const pIcon = this.pauseBtn.querySelector('.icon-pause');
-          const rIcon = this.pauseBtn.querySelector('.icon-resume');
-          const label = this.pauseBtn.querySelector('.pause-label');
-          if (pIcon) pIcon.style.display = 'inline-block';
-          if (rIcon) rIcon.style.display = 'none';
-          if (label) label.textContent = 'Pause';
-        }
         showToast('Resuming download...');
       }
     };
 
     activeDownloads.set(ctrlId, ctrl);
-    if (pauseBtn) {
-      pauseBtn.style.display = 'inline-flex';
-      pauseBtn.classList.remove('paused');
-      const pIcon = pauseBtn.querySelector('.icon-pause');
-      const rIcon = pauseBtn.querySelector('.icon-resume');
-      const label = pauseBtn.querySelector('.pause-label');
-      if (pIcon) pIcon.style.display = 'inline-block';
-      if (rIcon) rIcon.style.display = 'none';
-      if (label) label.textContent = 'Pause';
-    }
 
     updateDownloadProgress(btnElement, 0, 'Preparing...', 'downloading');
     updateDownloadProgress(previewBtn, 0, 'Preparing...', 'downloading');
@@ -856,12 +786,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           if (varText) mediaInfo = HlsParser.parseMedia(varText, targetMediaUrl);
         }
+        if (!mediaInfo || mediaInfo.segments.length === 0) {
+          mediaInfo = HlsParser.parseMedia(text, targetMediaUrl);
+        }
       } else if (window.HlsParser) {
         mediaInfo = HlsParser.parseMedia(text, targetMediaUrl);
       }
 
       if (!mediaInfo || mediaInfo.segments.length === 0) {
-        throw new Error('Could not parse stream segments');
+        console.warn('Could not parse HLS segments, attempting direct download...');
+        downloadDirectVideo(item, btnElement);
+        return;
       }
 
       const segments = mediaInfo.segments;
@@ -959,7 +894,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateDownloadProgress(previewBtn, 0, 'Direct Stream', 'reset');
     } finally {
       activeDownloads.delete(ctrlId);
-      if (pauseBtn) pauseBtn.style.display = 'none';
     }
   }
 
@@ -1050,8 +984,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnElement = document.querySelector(`.btn-download[data-id="${item.id}"]`);
     }
 
-    const card = btnElement ? btnElement.closest('.media-card') : null;
-    const pauseBtn = card ? card.querySelector('.btn-pause-download') : null;
     const ctrlId = item.id || item.url;
 
     if (activeDownloads.has(ctrlId)) {
@@ -1066,49 +998,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentPercent: 0,
       lastStatusText: 'Downloading 0%',
       btnElement,
-      pauseBtn,
       pause() {
         this.isPaused = true;
         updateDownloadProgress(this.btnElement, this.currentPercent, `⏸ Paused (${this.currentPercent}%)`, 'paused');
-        if (this.pauseBtn) {
-          this.pauseBtn.classList.add('paused');
-          const pIcon = this.pauseBtn.querySelector('.icon-pause');
-          const rIcon = this.pauseBtn.querySelector('.icon-resume');
-          const label = this.pauseBtn.querySelector('.pause-label');
-          if (pIcon) pIcon.style.display = 'none';
-          if (rIcon) rIcon.style.display = 'inline-block';
-          if (label) label.textContent = 'Resume';
-        }
         showToast('Download paused');
       },
       resume() {
         this.isPaused = false;
         updateDownloadProgress(this.btnElement, this.currentPercent, this.lastStatusText, 'downloading');
-        if (this.pauseBtn) {
-          this.pauseBtn.classList.remove('paused');
-          const pIcon = this.pauseBtn.querySelector('.icon-pause');
-          const rIcon = this.pauseBtn.querySelector('.icon-resume');
-          const label = this.pauseBtn.querySelector('.pause-label');
-          if (pIcon) pIcon.style.display = 'inline-block';
-          if (rIcon) rIcon.style.display = 'none';
-          if (label) label.textContent = 'Pause';
-        }
         showToast('Resuming download...');
       }
     };
 
     activeDownloads.set(ctrlId, ctrl);
-    if (pauseBtn) {
-      pauseBtn.style.display = 'inline-flex';
-      pauseBtn.classList.remove('paused');
-      const pIcon = pauseBtn.querySelector('.icon-pause');
-      const rIcon = pauseBtn.querySelector('.icon-resume');
-      const label = pauseBtn.querySelector('.pause-label');
-      if (pIcon) pIcon.style.display = 'inline-block';
-      if (rIcon) rIcon.style.display = 'none';
-      if (label) label.textContent = 'Pause';
-    }
-
     updateDownloadProgress(btnElement, 0, 'Preparing...', 'downloading');
 
     const cleanTitle = sanitizeFilename(item.title || activeTabTitle || 'Video');
@@ -1165,12 +1067,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             mediaInfo = HlsParser.parseMedia(varText, targetMediaUrl);
           }
         }
+        // Fallback: If master playlist had no valid variants, or fetching variant failed, try parsing text as media playlist directly!
+        if (!mediaInfo || mediaInfo.segments.length === 0) {
+          mediaInfo = HlsParser.parseMedia(text, targetMediaUrl);
+        }
       } else if (window.HlsParser) {
         mediaInfo = HlsParser.parseMedia(text, targetMediaUrl);
       }
 
       if (!mediaInfo || mediaInfo.segments.length === 0) {
-        throw new Error('Could not parse video segments');
+        console.warn('Could not parse HLS segments, attempting direct download...');
+        downloadDirectVideo(item, btnElement);
+        return;
       }
 
       // If separate audio rendition is defined in master playlist, parse and fetch audio playlist
@@ -1386,7 +1294,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateDownloadProgress(btnElement, 0, 'Download Video', 'reset');
     } finally {
       activeDownloads.delete(ctrlId);
-      if (pauseBtn) pauseBtn.style.display = 'none';
     }
   }
 
@@ -1397,8 +1304,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!btnElement && item && item.id) {
       btnElement = document.querySelector(`.btn-download[data-id="${item.id}"]`);
     }
-    const card = btnElement ? btnElement.closest('.media-card') : null;
-    const pauseBtn = card ? card.querySelector('.btn-pause-download') : null;
     const ctrlId = item.id || item.url;
 
     if (activeDownloads.has(ctrlId)) {
@@ -1429,20 +1334,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             id: ctrlId,
             isPaused: false,
             btnElement,
-            pauseBtn,
             pause() {
               this.isPaused = true;
               chrome.downloads.pause(downloadId, () => {
                 updateDownloadProgress(this.btnElement, 50, '⏸ Paused', 'paused');
-                if (this.pauseBtn) {
-                  this.pauseBtn.classList.add('paused');
-                  const pIcon = this.pauseBtn.querySelector('.icon-pause');
-                  const rIcon = this.pauseBtn.querySelector('.icon-resume');
-                  const label = this.pauseBtn.querySelector('.pause-label');
-                  if (pIcon) pIcon.style.display = 'none';
-                  if (rIcon) rIcon.style.display = 'inline-block';
-                  if (label) label.textContent = 'Resume';
-                }
                 showToast('Download paused');
               });
             },
@@ -1450,31 +1345,12 @@ document.addEventListener('DOMContentLoaded', async () => {
               this.isPaused = false;
               chrome.downloads.resume(downloadId, () => {
                 updateDownloadProgress(this.btnElement, 50, 'Downloading...', 'downloading');
-                if (this.pauseBtn) {
-                  this.pauseBtn.classList.remove('paused');
-                  const pIcon = this.pauseBtn.querySelector('.icon-pause');
-                  const rIcon = this.pauseBtn.querySelector('.icon-resume');
-                  const label = this.pauseBtn.querySelector('.pause-label');
-                  if (pIcon) pIcon.style.display = 'inline-block';
-                  if (rIcon) rIcon.style.display = 'none';
-                  if (label) label.textContent = 'Pause';
-                }
                 showToast('Resuming download...');
               });
             }
           };
 
           activeDownloads.set(ctrlId, ctrl);
-          if (pauseBtn) {
-            pauseBtn.style.display = 'inline-flex';
-            pauseBtn.classList.remove('paused');
-            const pIcon = pauseBtn.querySelector('.icon-pause');
-            const rIcon = pauseBtn.querySelector('.icon-resume');
-            const label = pauseBtn.querySelector('.pause-label');
-            if (pIcon) pIcon.style.display = 'inline-block';
-            if (rIcon) rIcon.style.display = 'none';
-            if (label) label.textContent = 'Pause';
-          }
         } else {
           updateDownloadProgress(btnElement, 100, '✓ Saved!', 'completed');
         }
@@ -1495,7 +1371,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateDownloadProgress(btnElement, 0, 'Download Video', 'reset');
           }
           activeDownloads.delete(ctrlId);
-          if (pauseBtn) pauseBtn.style.display = 'none';
         });
       }
     });
@@ -1722,7 +1597,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateDownloadProgress(ctrl.btnElement, 100, '✓ Saved!', 'completed');
           }
           activeDownloads.delete(id);
-          if (ctrl.pauseBtn) ctrl.pauseBtn.style.display = 'none';
         }
       }
     });

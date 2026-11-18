@@ -13,7 +13,10 @@ class HlsParser {
 
   // Check whether M3U8 is a master playlist or media playlist
   static isMasterPlaylist(content) {
-    return content.includes('#EXT-X-STREAM-INF') || content.includes('#EXT-X-SUBTITLES') || content.includes('#EXT-X-MEDIA');
+    if (!content) return false;
+    // A media playlist always contains #EXTINF tags; a master playlist never does (RFC 8216)
+    if (content.includes('#EXTINF')) return false;
+    return content.includes('#EXT-X-STREAM-INF') || content.includes('#EXT-X-MEDIA:') || content.includes('#EXT-X-SUBTITLES');
   }
 
   // Parse Master Playlist
@@ -138,16 +141,19 @@ class HlsParser {
         const parts = line.substring('#EXTINF:'.length).split(',');
         currentDuration = parseFloat(parts[0]) || 0;
         currentTitle = parts[1] || '';
-      } else if (!line.startsWith('#') && currentDuration > 0) {
+      } else if (!line.startsWith('#')) {
+        // Any non-empty line not starting with '#' is a media segment in HLS media playlists
         const segmentUri = this.resolveUrl(line, baseUrl);
+        const segDur = currentDuration > 0 ? currentDuration : 6;
         segments.push({
           index: segments.length,
           uri: segmentUri,
-          duration: currentDuration,
+          duration: segDur,
           title: currentTitle
         });
-        totalDuration += currentDuration;
+        totalDuration += segDur;
         currentDuration = 0;
+        currentTitle = '';
       }
     }
 

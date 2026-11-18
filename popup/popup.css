@@ -536,40 +536,6 @@ body {
 .btn-download.completed .icon-resume { display: none !important; }
 .btn-download.completed .icon-dl { display: inline-block !important; }
 
-/* Dedicated Pause/Resume Button in Card Actions */
-.btn-pause-download {
-  display: none;
-  align-items: center;
-  gap: 5px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
-  padding: 7px 11px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.btn-pause-download:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-  transform: translateY(-1px);
-}
-
-.btn-pause-download.paused {
-  background: rgba(245, 158, 11, 0.18);
-  border-color: rgba(245, 158, 11, 0.5);
-  color: #fbbf24;
-}
-
-.btn-pause-download.paused:hover {
-  background: rgba(245, 158, 11, 0.28);
-  border-color: rgba(245, 158, 11, 0.75);
-}
-
 /* Optimizing / Transmuxing stage (purple / violet gradient) */
 .btn-download.optimizing {
   border-color: rgba(192, 132, 252, 0.45);
