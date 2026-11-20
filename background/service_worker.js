@@ -394,7 +394,6 @@ function registerMedia(tabId, item) {
 
   saveMediaQueue();
 }
-}
 
 // Network Listener (Passive webRequest)
 chrome.webRequest.onHeadersReceived.addListener(
