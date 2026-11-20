@@ -34,6 +34,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const footerInfo = document.getElementById('footerInfo');
   const toast = document.getElementById('toast');
 
+  // Ensure mouse wheel scroll immediately scrolls cards container
+  if (mediaList) {
+    mediaList.addEventListener('wheel', (e) => {
+      if (mediaList.scrollHeight > mediaList.clientHeight) {
+        mediaList.scrollTop += e.deltaY;
+      }
+    }, { passive: true });
+  }
+
   // Header Buttons
   const btnForceDownload = document.getElementById('btnForceDownload');
   const btnRescan = document.getElementById('btnRescan');
@@ -495,7 +504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     emptyState.classList.remove('active');
-    mediaList.style.display = 'flex';
+    mediaList.style.display = 'block';
 
     filtered.forEach(item => {
       const card = createMediaCard(item);
