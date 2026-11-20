@@ -13,12 +13,52 @@ chrome.storage.local.get(['xtractor_media_queue'], (res) => {
   }
 });
 
+function isHlsMedia(item) {
+  if (!item) return false;
+  if (item.isHls) return true;
+  const url = (item.url || '').toLowerCase();
+  const mime = (item.mimeType || '').toLowerCase();
+  return url.includes('.m3u8') || mime.includes('mpegurl');
+}
+
+function deduplicateMediaList(items) {
+  if (!items || items.length <= 1) return items || [];
+  const hasHlsStream = items.some(m => isHlsMedia(m));
+  let list = items;
+  if (hasHlsStream) {
+    list = list.filter(m => !m.isBlobPlayer && !(m.url && m.url.startsWith('blob:')));
+  }
+  const masterItem = list.find(m => isHlsMedia(m) && (m.url?.includes('master') || m.url?.includes('manifest')));
+  if (masterItem && masterItem.url) {
+    const masterBase = masterItem.url.split('?')[0].replace(/master[^/]*\.m3u8$/i, '');
+    list = list.filter(m => {
+      if (m === masterItem) return true;
+      if (isHlsMedia(m) && masterBase && m.url && m.url.startsWith(masterBase)) return false;
+      return true;
+    });
+  }
+  const seen = new Set();
+  const result = [];
+  for (const item of list) {
+    const cleanUrl = item.cleanUrl || (item.url ? item.url.split('?')[0] : '');
+    const titleKey = (item.title && !isGenericTitle(item.title)) ? item.title.toLowerCase() : cleanUrl;
+    const key = `${titleKey}_${item.category || 'video'}_${isHlsMedia(item) ? 'hls' : cleanUrl}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(item);
+    }
+  }
+  return result.length > 0 ? result : items;
+}
+
 function saveMediaQueue() {
+  mediaQueue = deduplicateMediaList(mediaQueue);
   chrome.storage.local.set({ xtractor_media_queue: mediaQueue });
   updateGlobalBadge();
 }
 
 function updateGlobalBadge() {
+  mediaQueue = deduplicateMediaList(mediaQueue);
   const count = mediaQueue.length;
   const text = count > 0 ? (count > 99 ? '99+' : String(count)) : '';
   chrome.action.setBadgeText({ text });
@@ -325,10 +365,16 @@ function registerMedia(tabId, item) {
     return;
   }
 
+  // If a genuine HLS stream is already captured, reject duplicate generic blob player
+  if ((item.isBlobPlayer || item.url.startsWith('blob:')) && mediaQueue.some(m => isHlsMedia(m))) {
+    return;
+  }
+
   // 1. Check if identical or stream-variant is already in the queue
   const existingIndex = mediaQueue.findIndex(m => 
     m.cleanUrl === cleanUrl || 
-    (m.isHls && item.isHls && shareMasterBase(m.url, item.url))
+    (m.isHls && item.isHls && shareMasterBase(m.url, item.url)) ||
+    (item.title && !isGenericTitle(item.title) && m.title && m.title.toLowerCase() === item.title.toLowerCase() && isHlsMedia(m) && isHlsMedia(item))
   );
 
   if (existingIndex >= 0) {
@@ -353,7 +399,7 @@ function registerMedia(tabId, item) {
 
   // 2. Deduplicate: If an HLS stream is detected, remove any duplicate generic blob player entries
   if (item.isHls) {
-    const blobIdx = mediaQueue.findIndex(m => (m.isBlobPlayer || m.url.startsWith('blob:')) && (m.tabId === tabId || isGenericTitle(m.title)));
+    const blobIdx = mediaQueue.findIndex(m => m.isBlobPlayer || m.url.startsWith('blob:'));
     if (blobIdx >= 0) {
       const blobItem = mediaQueue[blobIdx];
       if (blobItem.title && !isGenericTitle(blobItem.title) && isGenericTitle(item.title)) {
@@ -380,12 +426,13 @@ function registerMedia(tabId, item) {
       const hasMaster = mediaQueue.some(m => m.isHls && (m.url.includes('master') || m.url.includes('manifest')) && shareMasterBase(m.url, item.url));
       if (hasMaster) return;
     }
-  } else if ((item.isBlobPlayer || item.url.startsWith('blob:')) && mediaQueue.some(m => m.isHls && m.tabId === tabId)) {
-    return; // Don't add blob duplicate when genuine HLS stream is already captured
   }
 
   // 3. FIFO Queue: Add newly visited video to index 0 (top of list)
   mediaQueue.unshift(item);
+
+  // Run thorough deduplication on mediaQueue
+  mediaQueue = deduplicateMediaList(mediaQueue);
 
   // When more than MAX_MEDIA_QUEUE_SIZE (10), remove the oldest item (tail of list)
   while (mediaQueue.length > MAX_MEDIA_QUEUE_SIZE) {

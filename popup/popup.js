@@ -429,6 +429,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     countAudio.textContent = audios;
 
     footerInfo.textContent = `${total} video${total === 1 ? '' : 's'} (FIFO: max 10)`;
+
+    // Keep extension badge in immediate 100% sync with popup cards
+    if (chrome.action && chrome.action.setBadgeText) {
+      chrome.action.setBadgeText({ text: total > 0 ? (total > 99 ? '99+' : String(total)) : '' });
+      chrome.action.setBadgeBackgroundColor({ color: '#4F46E5' });
+    }
   }
 
   // Render cards
