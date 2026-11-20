@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Xtractor Extension Preview</title>
+  <link rel="stylesheet" href="../popup/popup.css">
+  <style>
+    body {
+      background-color: #0b0f19;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      width: auto;
+      height: auto;
+      max-height: none;
+      overflow: visible;
+    }
+    .popup-frame {
+      width: 480px;
+      height: 580px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-primary);
+    }
+    .popup-frame .app-container {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-frame">
+    <div class="app-container">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="brand">
+          <img src="../icons/icon32.png" alt="Xtractor" class="brand-icon">
+          <div class="brand-text">
+            <span class="brand-name">Xtractor</span>
+            <span class="brand-badge">PRO</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn highlight-btn" title="Force Video Scan">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </button>
+          <button class="icon-btn" title="Rescan Page">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/>
+            </svg>
+          </button>
+          <button class="icon-btn" title="Settings">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Filter Tabs & Search Bar -->
+      <div class="controls-section">
+        <div class="tabs">
+          <button class="tab-btn active">All Videos <span class="tab-badge">3</span></button>
+          <button class="tab-btn">Videos <span class="tab-badge">3</span></button>
+          <button class="tab-btn">Audio <span class="tab-badge">0</span></button>
+        </div>
+        <div class="search-row">
+          <div class="search-box">
+            <input type="text" placeholder="Search videos...">
+          </div>
+          <button class="btn-batch" style="display: block;">
+            Download All (3)
+          </button>
+        </div>
+      </div>
+
+      <!-- Media List Container -->
+      <main class="media-container" style="display: block;">
+        <!-- Card 1: Active Downloading -->
+        <div class="media-card downloading">
+          <div class="card-top">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div class="card-details">
+              <div class="card-title-row">
+                <input type="text" class="card-title-input" value="Lecture 22 - Dynamic Programming (Part 2)">
+              </div>
+              <div class="card-meta">
+                <span class="meta-badge badge-format">1080p MP4</span>
+                <span class="meta-badge badge-res">1080p</span>
+                <span class="card-size">1.2 GB</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-download downloading" title="Click to Pause / Resume">
+              <span class="btn-progress-bar" style="width: 68%; opacity: 1;"></span>
+              <svg class="icon-pause" viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                <rect x="6" y="4" width="4" height="16" rx="1"/>
+                <rect x="14" y="4" width="4" height="16" rx="1"/>
+              </svg>
+              <span class="btn-label">Downloading 68% (12.4 MB/s)</span>
+            </button>
+            <button class="btn-secondary">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="10 8 16 12 10 16 10 8"/>
+              </svg>
+              Preview
+            </button>
+            <button class="btn-secondary">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+              Copy
+            </button>
+            <button class="btn-secondary btn-remove">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="card-progress-track" style="opacity: 1;">
+            <div class="card-progress-fill" style="width: 68%;"></div>
+          </div>
+        </div>
+
+        <!-- Card 2: Ready -->
+        <div class="media-card">
+          <div class="card-top">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div class="card-details">
+              <div class="card-title-row">
+                <input type="text" class="card-title-input" value="Lecture 21 - Dynamic Programming (Part 1)">
+              </div>
+              <div class="card-meta">
+                <span class="meta-badge badge-format">720p MP4</span>
+                <span class="meta-badge badge-res">720p</span>
+                <span class="card-size">845.2 MB</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-download">
+              <svg class="icon-dl" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+              </svg>
+              <span class="btn-label">Download Video</span>
+            </button>
+            <button class="btn-secondary">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="10 8 16 12 10 16 10 8"/>
+              </svg>
+              Preview
+            </button>
+            <button class="btn-secondary">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+              Copy
+            </button>
+            <button class="btn-secondary btn-remove">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 3: Ready -->
+        <div class="media-card">
+          <div class="card-top">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div class="card-details">
+              <div class="card-title-row">
+                <input type="text" class="card-title-input" value="Lecture 20 - Graph Algorithms & Traversals">
+              </div>
+              <div class="card-meta">
+                <span class="meta-badge badge-format">1080p MP4</span>
+                <span class="meta-badge badge-res">1080p</span>
+                <span class="card-size">1.05 GB</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-download">
+              <svg class="icon-dl" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+              </svg>
+              <span class="btn-label">Download Video</span>
+            </button>
+            <button class="btn-secondary">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="10 8 16 12 10 16 10 8"/>
+              </svg>
+              Preview
+            </button>
+            <button class="btn-secondary">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+              Copy
+            </button>
+            <button class="btn-secondary btn-remove">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <!-- Footer -->
+      <footer class="app-footer">
+        <span id="footerInfo">3 videos (FIFO: max 10)</span>
+        <button id="btnClearMedia" class="link-btn">Clear Queue</button>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>
