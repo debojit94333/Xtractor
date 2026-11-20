@@ -1,6 +1,22 @@
 // Xtractor Popup Controller - Pro Video Engine
 // Fixes: Accurate title resolution, human-readable file sizes, non-laggy video output, single-file download.
 
+// Global suppression of benign third-party library notices (e.g. MPEG-TS stream_type 0x15 ID3 metadata notes)
+if (typeof console !== 'undefined' && console.warn) {
+  const _origWarn = console.warn;
+  console.warn = function(...args) {
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('stream_type 0x15')) {
+      return;
+    }
+    return _origWarn.apply(console, args);
+  };
+}
+if (typeof globalThis !== 'undefined' && globalThis.Mediabunny && globalThis.Mediabunny.Logging) {
+  try {
+    globalThis.Mediabunny.Logging.level = 1; // Errors only
+  } catch (_) {}
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   let activeTabId = null;
   let allMedia = [];
@@ -199,18 +215,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               try { onProgress(prog); } catch (_) {}
             };
           }
-          const origWarn = console.warn;
-          console.warn = (...args) => {
-            if (args[0] && typeof args[0] === 'string' && args[0].includes('stream_type 0x15')) {
-              return; // Benign MPEG-TS ID3 metadata note, safe to ignore
-            }
-            origWarn.apply(console, args);
-          };
-          try {
-            await conversion.execute();
-          } finally {
-            console.warn = origWarn;
-          }
+          await conversion.execute();
           const mp4Buffer = output.target.buffer;
           if (mp4Buffer && mp4Buffer.byteLength > 0) {
             console.log(`[Xtractor] Mediabunny transmux complete: ${(mp4Buffer.byteLength / 1048576).toFixed(1)} MB`);

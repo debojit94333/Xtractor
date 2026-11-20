@@ -1,6 +1,22 @@
 // Xtractor Stream Downloader & Merger Controller
 // Coordinates stream parsing, multi-threaded segment downloading, AES decryption, and file assembly.
 
+// Global suppression of benign third-party library notices (e.g. MPEG-TS stream_type 0x15 ID3 metadata notes)
+if (typeof console !== 'undefined' && console.warn) {
+  const _origWarn = console.warn;
+  console.warn = function(...args) {
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('stream_type 0x15')) {
+      return;
+    }
+    return _origWarn.apply(console, args);
+  };
+}
+if (typeof globalThis !== 'undefined' && globalThis.Mediabunny && globalThis.Mediabunny.Logging) {
+  try {
+    globalThis.Mediabunny.Logging.level = 1; // Errors only
+  } catch (_) {}
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements
   const streamUrlInput = document.getElementById('streamUrl');
