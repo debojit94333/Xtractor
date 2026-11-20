@@ -581,6 +581,12 @@ body {
   border-color: #64748b;
 }
 
+.btn-remove:hover {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
 /* Empty State */
 .empty-state {
   display: none;

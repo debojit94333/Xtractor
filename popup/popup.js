@@ -353,7 +353,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function applyResolvedTitle(resolvedTitle) {
     if (!resolvedTitle || isGenericTitle(resolvedTitle)) return;
     allMedia.forEach(m => {
-      if (!m.title || isGenericTitle(m.title) || m.title.toLowerCase().includes('interactive video')) {
+      if ((!m.tabId || m.tabId === activeTabId) && (!m.title || isGenericTitle(m.title) || m.title.toLowerCase().includes('interactive video'))) {
         m.title = resolvedTitle;
       }
     });
@@ -428,7 +428,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     countVideo.textContent = videos;
     countAudio.textContent = audios;
 
-    footerInfo.textContent = `${total} video${total === 1 ? '' : 's'} detected`;
+    footerInfo.textContent = `${total} video${total === 1 ? '' : 's'} (FIFO: max 10)`;
   }
 
   // Render cards
@@ -541,12 +541,18 @@ document.addEventListener('DOMContentLoaded', async () => {
           </svg>
           Preview
         </button>
-        <button class="btn-secondary btn-copy" data-url="${escapeHtml(item.url)}">
+        <button class="btn-secondary btn-copy" data-url="${escapeHtml(item.url)}" title="Copy stream URL">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
           </svg>
           Copy
+        </button>
+        <button class="btn-secondary btn-remove" data-id="${item.id}" title="Remove from queue">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
         </button>
       </div>
       <div class="card-progress-track">
@@ -606,6 +612,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Failed to copy link');
       });
     });
+
+    const removeBtn = card.querySelector('.btn-remove');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        allMedia = allMedia.filter(m => m.id !== item.id);
+        chrome.runtime.sendMessage({ type: 'REMOVE_MEDIA_ITEM', id: item.id }, () => {
+          updateCounts();
+          renderMedia();
+          showToast('Video removed from queue');
+        });
+      });
+    }
 
     return card;
   }
@@ -1613,10 +1632,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Clear
   btnClearMedia.addEventListener('click', () => {
-    if (!activeTabId) return;
-    chrome.runtime.sendMessage({ type: 'CLEAR_TAB_MEDIA', tabId: activeTabId }, () => {
-      loadMedia();
-      showToast('Cleared');
+    chrome.runtime.sendMessage({ type: 'CLEAR_TAB_MEDIA' }, () => {
+      allMedia = [];
+      updateCounts();
+      renderMedia();
+      showToast('Queue cleared');
     });
   });
 

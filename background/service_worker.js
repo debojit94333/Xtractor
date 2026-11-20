@@ -1,9 +1,36 @@
 // Xtractor Service Worker (Manifest V3) - Video-Focused Architecture
 // Focuses strictly on detecting full playable videos with accurate titles and fail-proof downloads.
 
-const tabMediaMap = new Map();
-const knownUrlsPerTab = new Map();
+const MAX_MEDIA_QUEUE_SIZE = 10;
+let mediaQueue = [];
 const pendingBlobDownloads = new Map();
+
+// Load persisted media queue on startup
+chrome.storage.local.get(['xtractor_media_queue'], (res) => {
+  if (res && Array.isArray(res.xtractor_media_queue)) {
+    mediaQueue = res.xtractor_media_queue;
+    updateGlobalBadge();
+  }
+});
+
+function saveMediaQueue() {
+  chrome.storage.local.set({ xtractor_media_queue: mediaQueue });
+  updateGlobalBadge();
+}
+
+function updateGlobalBadge() {
+  const count = mediaQueue.length;
+  const text = count > 0 ? (count > 99 ? '99+' : String(count)) : '';
+  chrome.action.setBadgeText({ text });
+  chrome.action.setBadgeBackgroundColor({ color: '#4F46E5' });
+}
+
+function shareMasterBase(url1, url2) {
+  if (!url1 || !url2) return false;
+  const base1 = url1.split('?')[0].replace(/(master|index|manifest)[^/]*\.m3u8$/i, '');
+  const base2 = url2.split('?')[0].replace(/(master|index|manifest)[^/]*\.m3u8$/i, '');
+  return Boolean(base1 && base2 && (base1 === base2 || url1.startsWith(base2) || url2.startsWith(base1)));
+}
 
 // Guarantee that downloads retain their exact human-readable titles
 if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
@@ -288,74 +315,85 @@ function inspectMedia(urlStr, contentType = '', contentLength = 0) {
   return null;
 }
 
-// Register media with deduplication
+// Register media with intelligent FIFO queue (max 10 items) and deduplication
 function registerMedia(tabId, item) {
-  if (!tabId || tabId <= 0) return;
+  if (!item || !item.url) return;
 
-  if (!tabMediaMap.has(tabId)) {
-    tabMediaMap.set(tabId, []);
-    knownUrlsPerTab.set(tabId, new Set());
-  }
-
-  const list = tabMediaMap.get(tabId);
-  const known = knownUrlsPerTab.get(tabId);
   const cleanUrl = getNormalizedUrl(item.url);
-
-  const existingIndex = list.findIndex(m => m.cleanUrl === cleanUrl);
-
-  if (existingIndex >= 0) {
-    const existing = list[existingIndex];
-    if (item.size > existing.size) {
-      existing.size = item.size;
-      existing.sizeFormatted = formatBytes(item.size);
-    }
-    if (item.resolution && !existing.resolution) existing.resolution = item.resolution;
-    if (item.title && !item.title.startsWith('Video_') && existing.title.startsWith('Video_')) {
-      existing.title = item.title;
-    }
-    return;
-  }
 
   if (!item.isHls && item.size > 0 && item.size < userSettings.minVideoSizeKb * 1024) {
     return;
   }
 
-  // Deduplicate: If an HLS stream is detected, remove any duplicate generic blob player entries
-  if (item.isHls) {
-    const blobIdx = list.findIndex(m => m.isBlobPlayer || m.url.startsWith('blob:'));
-    if (blobIdx >= 0) {
-      list.splice(blobIdx, 1);
+  // 1. Check if identical or stream-variant is already in the queue
+  const existingIndex = mediaQueue.findIndex(m => 
+    m.cleanUrl === cleanUrl || 
+    (m.isHls && item.isHls && shareMasterBase(m.url, item.url))
+  );
+
+  if (existingIndex >= 0) {
+    const existing = mediaQueue[existingIndex];
+    if (item.size > existing.size) {
+      existing.size = item.size;
+      existing.sizeFormatted = formatBytes(item.size);
     }
+    if (item.resolution && !existing.resolution) existing.resolution = item.resolution;
+    // Prefer master.m3u8 over child variant URL
+    if (item.isHls && (item.url.includes('master') || item.url.includes('manifest')) && !existing.url.includes('master') && !existing.url.includes('manifest')) {
+      existing.url = item.url;
+      existing.cleanUrl = cleanUrl;
+    }
+    // Update title if new title is non-generic and existing is generic
+    if (item.title && !isGenericTitle(item.title) && (isGenericTitle(existing.title) || existing.title.toLowerCase().includes('interactive video'))) {
+      existing.title = item.title;
+    }
+    saveMediaQueue();
+    return;
+  }
+
+  // 2. Deduplicate: If an HLS stream is detected, remove any duplicate generic blob player entries
+  if (item.isHls) {
+    const blobIdx = mediaQueue.findIndex(m => (m.isBlobPlayer || m.url.startsWith('blob:')) && (m.tabId === tabId || isGenericTitle(m.title)));
+    if (blobIdx >= 0) {
+      const blobItem = mediaQueue[blobIdx];
+      if (blobItem.title && !isGenericTitle(blobItem.title) && isGenericTitle(item.title)) {
+        item.title = blobItem.title;
+      }
+      mediaQueue.splice(blobIdx, 1);
+    }
+
     // If master.m3u8 arrives, replace any child variant of the same stream
     if (item.url.includes('master') || item.url.includes('manifest')) {
       const masterBase = item.url.split('?')[0].replace(/master[^/]*\.m3u8$/i, '');
       if (masterBase) {
-        const childIdx = list.findIndex(m => m.isHls && m.url.startsWith(masterBase));
-        if (childIdx >= 0) list.splice(childIdx, 1);
+        const childIdx = mediaQueue.findIndex(m => m.isHls && m.url.startsWith(masterBase));
+        if (childIdx >= 0) {
+          const childItem = mediaQueue[childIdx];
+          if (childItem.title && !isGenericTitle(childItem.title) && isGenericTitle(item.title)) {
+            item.title = childItem.title;
+          }
+          mediaQueue.splice(childIdx, 1);
+        }
       }
     } else {
-      // If a master playlist is already in list covering this child playlist, don't duplicate
-      const hasMaster = list.some(m => m.isHls && (m.url.includes('master') || m.url.includes('manifest')) && item.url.startsWith(m.url.split('?')[0].replace(/master[^/]*\.m3u8$/i, '')));
+      // If a master playlist is already in queue covering this child playlist, don't duplicate
+      const hasMaster = mediaQueue.some(m => m.isHls && (m.url.includes('master') || m.url.includes('manifest')) && shareMasterBase(m.url, item.url));
       if (hasMaster) return;
     }
-  } else if ((item.isBlobPlayer || item.url.startsWith('blob:')) && list.some(m => m.isHls)) {
+  } else if ((item.isBlobPlayer || item.url.startsWith('blob:')) && mediaQueue.some(m => m.isHls && m.tabId === tabId)) {
     return; // Don't add blob duplicate when genuine HLS stream is already captured
   }
 
-  known.add(cleanUrl);
-  list.unshift(item);
+  // 3. FIFO Queue: Add newly visited video to index 0 (top of list)
+  mediaQueue.unshift(item);
 
-  updateTabBadge(tabId);
+  // When more than MAX_MEDIA_QUEUE_SIZE (10), remove the oldest item (tail of list)
+  while (mediaQueue.length > MAX_MEDIA_QUEUE_SIZE) {
+    mediaQueue.pop(); // FIFO: First-In is First-Out
+  }
+
+  saveMediaQueue();
 }
-
-// Update Badge
-function updateTabBadge(tabId) {
-  const items = tabMediaMap.get(tabId) || [];
-  const count = items.length;
-  const text = count > 0 ? (count > 99 ? '99+' : String(count)) : '';
-
-  chrome.action.setBadgeText({ tabId, text });
-  chrome.action.setBadgeBackgroundColor({ tabId, color: '#4F46E5' });
 }
 
 // Network Listener (Passive webRequest)
@@ -388,14 +426,12 @@ chrome.webRequest.onHeadersReceived.addListener(
         if (total > 0) trueTotalSize = total;
 
         if (start > 0) {
-          const list = tabMediaMap.get(details.tabId);
-          if (list) {
-            const cleanUrl = getNormalizedUrl(details.url);
-            const existing = list.find(m => m.cleanUrl === cleanUrl);
-            if (existing && total > existing.size) {
-              existing.size = total;
-              existing.sizeFormatted = formatBytes(total);
-            }
+          const cleanUrl = getNormalizedUrl(details.url);
+          const existing = mediaQueue.find(m => m.cleanUrl === cleanUrl);
+          if (existing && total > existing.size) {
+            existing.size = total;
+            existing.sizeFormatted = formatBytes(total);
+            saveMediaQueue();
           }
           return;
         }
@@ -448,22 +484,17 @@ chrome.webRequest.onHeadersReceived.addListener(
   ['responseHeaders']
 );
 
-// Tab Lifecycle
+// Tab Lifecycle - Keep FIFO media queue persistent across navigation
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'loading' && changeInfo.url) {
-    tabMediaMap.delete(tabId);
-    knownUrlsPerTab.delete(tabId);
-    updateTabBadge(tabId);
-  }
+  updateGlobalBadge();
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  tabMediaMap.delete(tabId);
-  knownUrlsPerTab.delete(tabId);
+  updateGlobalBadge();
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  updateTabBadge(activeInfo.tabId);
+  updateGlobalBadge();
 });
 
 // Messages Handler
@@ -510,17 +541,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'GET_TAB_MEDIA': {
-      const targetTabId = message.tabId;
-      const mediaList = tabMediaMap.get(targetTabId) || [];
-      sendResponse({ media: mediaList });
+      sendResponse({ media: mediaQueue });
       break;
     }
 
-    case 'CLEAR_TAB_MEDIA': {
-      const targetTabId = message.tabId;
-      tabMediaMap.delete(targetTabId);
-      knownUrlsPerTab.delete(targetTabId);
-      updateTabBadge(targetTabId);
+    case 'REMOVE_MEDIA_ITEM': {
+      const itemId = message.id;
+      if (itemId) {
+        mediaQueue = mediaQueue.filter(m => m.id !== itemId);
+        saveMediaQueue();
+      }
+      sendResponse({ success: true, media: mediaQueue });
+      break;
+    }
+
+    case 'CLEAR_TAB_MEDIA':
+    case 'CLEAR_ALL_MEDIA': {
+      mediaQueue = [];
+      saveMediaQueue();
       sendResponse({ success: true });
       break;
     }
