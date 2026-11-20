@@ -199,7 +199,18 @@ document.addEventListener('DOMContentLoaded', async () => {
               try { onProgress(prog); } catch (_) {}
             };
           }
-          await conversion.execute();
+          const origWarn = console.warn;
+          console.warn = (...args) => {
+            if (args[0] && typeof args[0] === 'string' && args[0].includes('stream_type 0x15')) {
+              return; // Benign MPEG-TS ID3 metadata note, safe to ignore
+            }
+            origWarn.apply(console, args);
+          };
+          try {
+            await conversion.execute();
+          } finally {
+            console.warn = origWarn;
+          }
           const mp4Buffer = output.target.buffer;
           if (mp4Buffer && mp4Buffer.byteLength > 0) {
             console.log(`[Xtractor] Mediabunny transmux complete: ${(mp4Buffer.byteLength / 1048576).toFixed(1)} MB`);
@@ -343,12 +354,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  function deduplicateMediaList(items) {
+    if (!items || items.length <= 1) return items || [];
+    const hasHlsStream = items.some(m => isHlsMedia(m));
+    let list = items;
+    if (hasHlsStream) {
+      list = list.filter(m => !m.isBlobPlayer && !(m.url && m.url.startsWith('blob:')));
+    }
+    const masterItem = list.find(m => isHlsMedia(m) && (m.url?.includes('master') || m.url?.includes('manifest')));
+    if (masterItem && masterItem.url) {
+      const masterBase = masterItem.url.split('?')[0].replace(/master[^/]*\.m3u8$/i, '');
+      list = list.filter(m => {
+        if (m === masterItem) return true;
+        if (isHlsMedia(m) && masterBase && m.url && m.url.startsWith(masterBase)) return false;
+        return true;
+      });
+    }
+    const seen = new Set();
+    const result = [];
+    for (const item of list) {
+      const cleanUrl = item.cleanUrl || (item.url ? item.url.split('?')[0] : '');
+      const key = `${item.title || ''}_${item.category || ''}_${isHlsMedia(item) ? 'hls' : cleanUrl}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(item);
+      }
+    }
+    return result.length > 0 ? result : items;
+  }
+
   // Load Media and Resolve Exact Video Title
   function loadMedia() {
     if (!activeTabId) return;
 
     chrome.runtime.sendMessage({ type: 'GET_TAB_MEDIA', tabId: activeTabId }, (response) => {
-      allMedia = (response && response.media) ? response.media : [];
+      allMedia = deduplicateMediaList((response && response.media) ? response.media : []);
 
       if (activeTabTitle && !isGenericTitle(activeTabTitle)) {
         applyResolvedTitle(activeTabTitle);

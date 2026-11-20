@@ -320,6 +320,28 @@ function registerMedia(tabId, item) {
     return;
   }
 
+  // Deduplicate: If an HLS stream is detected, remove any duplicate generic blob player entries
+  if (item.isHls) {
+    const blobIdx = list.findIndex(m => m.isBlobPlayer || m.url.startsWith('blob:'));
+    if (blobIdx >= 0) {
+      list.splice(blobIdx, 1);
+    }
+    // If master.m3u8 arrives, replace any child variant of the same stream
+    if (item.url.includes('master') || item.url.includes('manifest')) {
+      const masterBase = item.url.split('?')[0].replace(/master[^/]*\.m3u8$/i, '');
+      if (masterBase) {
+        const childIdx = list.findIndex(m => m.isHls && m.url.startsWith(masterBase));
+        if (childIdx >= 0) list.splice(childIdx, 1);
+      }
+    } else {
+      // If a master playlist is already in list covering this child playlist, don't duplicate
+      const hasMaster = list.some(m => m.isHls && (m.url.includes('master') || m.url.includes('manifest')) && item.url.startsWith(m.url.split('?')[0].replace(/master[^/]*\.m3u8$/i, '')));
+      if (hasMaster) return;
+    }
+  } else if ((item.isBlobPlayer || item.url.startsWith('blob:')) && list.some(m => m.isHls)) {
+    return; // Don't add blob duplicate when genuine HLS stream is already captured
+  }
+
   known.add(cleanUrl);
   list.unshift(item);
 
