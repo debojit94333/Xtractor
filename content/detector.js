@@ -145,6 +145,8 @@
       chrome.runtime.sendMessage({
         type: 'MEDIA_DETECTED',
         media: mediaObj
+      }, () => {
+        const _err = chrome.runtime.lastError;
       });
     } catch (e) {
       // Extension context invalidated

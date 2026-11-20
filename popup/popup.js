@@ -57,6 +57,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   const countAudio = document.getElementById('countAudio');
 
   let activeTabTitle = '';
+  let isInternalPage = false;
+
+  function sendTabMessageSafe(tabId, message, callback) {
+    if (!tabId || tabId <= 0) {
+      if (callback) callback(null);
+      return;
+    }
+    try {
+      chrome.tabs.sendMessage(tabId, message, (res) => {
+        const _err = chrome.runtime.lastError;
+        if (callback) callback(_err ? null : res);
+      });
+    } catch (_) {
+      if (callback) callback(null);
+    }
+  }
+
+  function sendRuntimeMessageSafe(message, callback) {
+    try {
+      chrome.runtime.sendMessage(message, (res) => {
+        const _err = chrome.runtime.lastError;
+        if (callback) callback(_err ? null : res);
+      });
+    } catch (_) {
+      if (callback) callback(null);
+    }
+  }
 
   function showToast(message, duration = 2500) {
     toast.textContent = message;
@@ -158,7 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tabId) {
       try {
         const proxyRes = await new Promise(resolve => {
-          chrome.tabs.sendMessage(tabId, { type: 'PAGE_PROXY_FETCH_BLOB', url: segUri }, resolve);
+          sendTabMessageSafe(tabId, { type: 'PAGE_PROXY_FETCH_BLOB', url: segUri }, resolve);
         });
         if (proxyRes && proxyRes.success && proxyRes.base64) {
           return base64ToArrayBuffer(proxyRes.base64);
@@ -345,6 +372,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tabs && tabs[0]) {
     activeTabId = tabs[0].id;
+    isInternalPage = !tabs[0].url || /^(chrome|edge|about|devtools|chrome-extension):/i.test(tabs[0].url);
     if (tabs[0].title) {
       activeTabTitle = cleanPageTitle(tabs[0].title);
     }
@@ -390,19 +418,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Load Media and Resolve Exact Video Title
   function loadMedia() {
-    if (!activeTabId) return;
-
-    chrome.runtime.sendMessage({ type: 'GET_TAB_MEDIA', tabId: activeTabId }, (response) => {
+    sendRuntimeMessageSafe({ type: 'GET_TAB_MEDIA', tabId: activeTabId }, (response) => {
       allMedia = deduplicateMediaList((response && response.media) ? response.media : []);
 
       if (activeTabTitle && !isGenericTitle(activeTabTitle)) {
         applyResolvedTitle(activeTabTitle);
       }
 
-      // Query TOP frame ({ frameId: 0 }) specifically for og:title / h1 / page title
-      try {
-        chrome.tabs.sendMessage(activeTabId, { type: 'GET_PAGE_TITLE' }, { frameId: 0 }, (titleRes) => {
-          if (!chrome.runtime.lastError && titleRes && titleRes.title) {
+      // Query TOP frame specifically for og:title / h1 / page title on accessible web pages
+      if (!isInternalPage && activeTabId) {
+        sendTabMessageSafe(activeTabId, { type: 'GET_PAGE_TITLE' }, (titleRes) => {
+          if (titleRes && titleRes.title) {
             const docTitle = cleanPageTitle(titleRes.title);
             if (docTitle && !isGenericTitle(docTitle)) {
               activeTabTitle = docTitle;
@@ -412,10 +438,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           updateCounts();
           renderMedia();
         });
-      } catch (e) {
-        updateCounts();
-        renderMedia();
+        return;
       }
+
+      updateCounts();
+      renderMedia();
     });
   }
 
@@ -624,7 +651,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       removeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         allMedia = allMedia.filter(m => m.id !== item.id);
-        chrome.runtime.sendMessage({ type: 'REMOVE_MEDIA_ITEM', id: item.id }, () => {
+        sendRuntimeMessageSafe({ type: 'REMOVE_MEDIA_ITEM', id: item.id }, () => {
           updateCounts();
           renderMedia();
           showToast('Video removed from queue');
@@ -829,9 +856,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (resp.ok) text = await resp.text();
       } catch (e) {}
 
-      if (!text && activeTabId) {
+      if (!text && activeTabId && !isInternalPage) {
         const pageFetch = await new Promise(resolve => {
-          chrome.tabs.sendMessage(activeTabId, { type: 'PAGE_PROXY_FETCH', url: item.url }, resolve);
+          sendTabMessageSafe(activeTabId, { type: 'PAGE_PROXY_FETCH', url: item.url }, resolve);
         });
         if (pageFetch && pageFetch.success) text = pageFetch.text;
       }
@@ -848,9 +875,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const varResp = await fetch(targetMediaUrl);
             if (varResp.ok) varText = await varResp.text();
           } catch (e) {}
-          if (!varText && activeTabId) {
+          if (!varText && activeTabId && !isInternalPage) {
             const varFetch = await new Promise(resolve => {
-              chrome.tabs.sendMessage(activeTabId, { type: 'PAGE_PROXY_FETCH', url: targetMediaUrl }, resolve);
+              sendTabMessageSafe(activeTabId, { type: 'PAGE_PROXY_FETCH', url: targetMediaUrl }, resolve);
             });
             if (varFetch && varFetch.success) varText = varFetch.text;
           }
@@ -1095,9 +1122,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (e) {}
 
       // 2. If direct fetch was blocked by CORS, fetch via active tab's authenticated context!
-      if (!text && activeTabId) {
+      if (!text && activeTabId && !isInternalPage) {
         const pageFetch = await new Promise(resolve => {
-          chrome.tabs.sendMessage(activeTabId, { type: 'PAGE_PROXY_FETCH', url: item.url }, resolve);
+          sendTabMessageSafe(activeTabId, { type: 'PAGE_PROXY_FETCH', url: item.url }, resolve);
         });
         if (pageFetch && pageFetch.success) {
           text = pageFetch.text;
@@ -1126,9 +1153,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (varResp.ok) varText = await varResp.text();
           } catch (e) {}
 
-          if (!varText && activeTabId) {
+          if (!varText && activeTabId && !isInternalPage) {
             const varFetch = await new Promise(resolve => {
-              chrome.tabs.sendMessage(activeTabId, { type: 'PAGE_PROXY_FETCH', url: targetMediaUrl }, resolve);
+              sendTabMessageSafe(activeTabId, { type: 'PAGE_PROXY_FETCH', url: targetMediaUrl }, resolve);
             });
             if (varFetch && varFetch.success) varText = varFetch.text;
           }
@@ -1160,9 +1187,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (aResp.ok) aText = await aResp.text();
         } catch (e) {}
 
-        if (!aText && activeTabId) {
+        if (!aText && activeTabId && !isInternalPage) {
           const aFetch = await new Promise(resolve => {
-            chrome.tabs.sendMessage(activeTabId, { type: 'PAGE_PROXY_FETCH', url: separateAudioUri }, resolve);
+            sendTabMessageSafe(activeTabId, { type: 'PAGE_PROXY_FETCH', url: separateAudioUri }, resolve);
           });
           if (aFetch && aFetch.success) aText = aFetch.text;
         }
@@ -1389,7 +1416,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast(`Downloading: ${finalFilename}...`);
     updateDownloadProgress(btnElement, 35, 'Downloading...', 'downloading');
 
-    chrome.runtime.sendMessage({
+    sendRuntimeMessageSafe({
       type: 'TRIGGER_DOWNLOAD',
       url: item.url,
       filename: cleanTitle,
@@ -1428,7 +1455,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Fallback to authenticated page fetch
         showToast('Saving video via page context...');
         updateDownloadProgress(btnElement, 60, 'Saving...', 'downloading');
-        chrome.tabs.sendMessage(activeTabId, {
+        sendTabMessageSafe(activeTabId, {
           type: 'PAGE_FETCH_DOWNLOAD',
           url: item.url,
           filename: cleanTitle
@@ -1451,13 +1478,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cleanName = sanitizeFilename(filename.replace(/\.mp4$/i, '')) + '.mp4';
 
     // Register with background onDeterminingFilename listener to prevent Chrome from naming blob as UUID
-    try {
-      chrome.runtime.sendMessage({
-        type: 'REGISTER_BLOB_DOWNLOAD',
-        url: objectUrl,
-        filename: cleanName
-      });
-    } catch (_) {}
+    sendRuntimeMessageSafe({
+      type: 'REGISTER_BLOB_DOWNLOAD',
+      url: objectUrl,
+      filename: cleanName
+    });
 
     if (chrome.downloads) {
       chrome.downloads.download({
@@ -1493,7 +1518,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 4. CAPTURE PLAYING VIDEO (For Blob/MSE Players)
   // -------------------------------------------------------------
   function captureLivePlayer(item, btnElement) {
-    if (!activeTabId) return;
+    if (!activeTabId || isInternalPage) return;
     const labelSpan = btnElement.querySelector('.btn-label');
     const cleanTitle = sanitizeFilename(item.title || 'Video');
 
@@ -1502,7 +1527,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast(`Capturing video: ${cleanTitle}... Click again to finish.`);
 
     btnElement.onclick = () => {
-      chrome.tabs.sendMessage(activeTabId, { type: 'STOP_VIDEO_CAPTURE' }, () => {
+      sendTabMessageSafe(activeTabId, { type: 'STOP_VIDEO_CAPTURE' }, () => {
         labelSpan.textContent = '✓ Saved Video';
         btnElement.classList.remove('downloading');
         btnElement.classList.add('completed');
@@ -1510,7 +1535,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     };
 
-    chrome.tabs.sendMessage(activeTabId, {
+    sendTabMessageSafe(activeTabId, {
       type: 'START_VIDEO_CAPTURE',
       filename: cleanTitle
     });
@@ -1570,7 +1595,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         results.forEach(f => {
           if (f.result && Array.isArray(f.result)) {
             f.result.forEach(m => {
-              chrome.runtime.sendMessage({
+              sendRuntimeMessageSafe({
                 type: 'MEDIA_DETECTED',
                 media: {
                   url: m.url,
@@ -1631,14 +1656,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Rescan
   btnRescan.addEventListener('click', () => {
     showToast('Rescanning...');
-    chrome.tabs.sendMessage(activeTabId, { type: 'SCAN_PAGE_NOW' }, () => {
+    if (!isInternalPage && activeTabId) {
+      sendTabMessageSafe(activeTabId, { type: 'SCAN_PAGE_NOW' }, () => {
+        setTimeout(loadMedia, 300);
+      });
+    } else {
       setTimeout(loadMedia, 300);
-    });
+    }
   });
 
   // Clear
   btnClearMedia.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'CLEAR_TAB_MEDIA' }, () => {
+    sendRuntimeMessageSafe({ type: 'CLEAR_TAB_MEDIA' }, () => {
       allMedia = [];
       updateCounts();
       renderMedia();
